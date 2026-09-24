@@ -90,7 +90,7 @@ fun HistoryScreen(viewModel: HistoryViewModel, onBack: () -> Unit) {
                     val slotItems = bySlot[slot] ?: return@forEach
                     item(key = "$day-$slot") {
                         Text(
-                            "${slot.label()} · ${slotItems.sumOf { it.nutrients.energyKcal }.kcal()} kcal",
+                            "${slot.label} · ${slotItems.sumOf { it.nutrients.energyKcal }.kcal()} kcal",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(top = 8.dp),
@@ -193,7 +193,7 @@ private fun EditDialog(
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MealSlot.entries.forEach { s ->
-                        FilterChip(selected = slot == s, onClick = { slot = s }, label = { Text(s.label()) })
+                        FilterChip(selected = slot == s, onClick = { slot = s }, label = { Text(s.label) })
                     }
                 }
                 if (confirmDelete) {
@@ -215,4 +215,3 @@ private fun EditDialog(
     )
 }
 
-private fun MealSlot.label() = name.lowercase().replaceFirstChar(Char::uppercase)

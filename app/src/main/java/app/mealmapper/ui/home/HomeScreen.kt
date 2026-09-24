@@ -167,7 +167,7 @@ fun HomeScreen(
                         today.forEach { item ->
                             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    item.mealSlot.name.lowercase().replaceFirstChar(Char::uppercase),
+                                    item.mealSlot.label,
                                     Modifier.width(80.dp),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,

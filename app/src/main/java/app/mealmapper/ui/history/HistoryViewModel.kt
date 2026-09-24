@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.mealmapper.AppContainer
 import app.mealmapper.data.log.LoggedItem
 import app.mealmapper.domain.MealSlot
+import app.mealmapper.domain.usualTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +25,13 @@ class HistoryViewModel(private val c: AppContainer) : ViewModel() {
 
     /** Same client id, newer version: Health Connect replaces the record, so Google Health shows the new values. */
     fun update(item: LoggedItem, name: String, amount: Double, slot: MealSlot) {
-        val changed = item.copy(name = name.trim().ifEmpty { item.name }, amount = amount, slot = slot.name)
+        val zone = java.time.ZoneId.systemDefault()
+        val eatenAt = if (slot == item.mealSlot) {
+            item.eatenAt
+        } else {
+            usualTime(slot, item.time.atZone(zone).toLocalDate()).atZone(zone).toEpochSecond()
+        }
+        val changed = item.copy(name = name.trim().ifEmpty { item.name }, amount = amount, slot = slot.name, eatenAt = eatenAt)
         viewModelScope.launch {
             runCatching { c.healthConnect.write(changed.toEntry()) }
                 .onSuccess {

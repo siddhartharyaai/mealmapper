@@ -25,6 +25,10 @@ import app.mealmapper.domain.NutritionEntry
 import app.mealmapper.domain.Nutrients
 import app.mealmapper.domain.ProductSource
 import app.mealmapper.domain.mealSlotFor
+import app.mealmapper.domain.mealSlotIn
+import app.mealmapper.domain.eatenAtFor
+import java.time.LocalDateTime
+import java.time.ZoneId
 import app.mealmapper.domain.parsePortion
 import app.mealmapper.ui.common.fmt
 import app.mealmapper.ui.photo.ImageTools
@@ -189,6 +193,8 @@ sealed interface ReviewState {
 
 class ReviewViewModel(
     private val request: ReviewRequest,
+    /** The meal chosen on the capture screen, or null to work it out here. */
+    private val initialSlot: MealSlot?,
     private val app: Context,
     private val c: AppContainer,
 ) : ViewModel() {
@@ -207,6 +213,13 @@ class ReviewViewModel(
     init {
         start()
     }
+
+    /** Capture screen's choice, else a meal named in the note, else the time of day. */
+    private fun startSlot(): MealSlot = initialSlot ?: mealSlotIn(request.note) ?: mealSlotFor(LocalTime.now())
+
+    /** Late logging: lunch saved at 9 pm is recorded at lunchtime today. */
+    private fun eatenAt(slot: MealSlot): Instant =
+        eatenAtFor(slot, LocalDateTime.now()).atZone(ZoneId.systemDefault()).toInstant()
 
     fun start() {
         viewModelScope.launch {
@@ -307,7 +320,7 @@ class ReviewViewModel(
                         db = matched[i],
                     )
                 },
-                slot = mealSlotFor(LocalTime.now()),
+                slot = startSlot(),
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 restaurant = restaurant,
             ),
@@ -367,7 +380,7 @@ class ReviewViewModel(
     fun saveMeal() {
         val form = (_state.value as? ReviewState.Meal)?.form ?: return
         if (!form.canSave) return
-        val now = Instant.now()
+        val now = eatenAt(form.slot)
         val entries = form.rows.filter { it.include }.mapIndexed { i, row ->
             val tag = when {
                 row.published -> "published"
@@ -448,7 +461,7 @@ class ReviewViewModel(
                 // Blank until the user says how much they ate, unless their note already did.
                 amountText = parsed?.amount?.fmt().orEmpty(),
                 amountFromNote = parsed?.explanation,
-                slot = mealSlotFor(LocalTime.now()),
+                slot = startSlot(),
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 per100Text = per100Text(product.per100),
                 problems = problems,
@@ -467,7 +480,7 @@ class ReviewViewModel(
                 source = ProductSource.Manual,
                 name = knownName.orEmpty(),
                 amountText = "",
-                slot = mealSlotFor(LocalTime.now()),
+                slot = startSlot(),
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 per100Text = NutrientField.entries.associateWith { "" },
                 editingLabel = true,
@@ -520,7 +533,7 @@ class ReviewViewModel(
             clientId = UUID.randomUUID().toString(),
             name = if (note.isEmpty()) baseName else "$baseName · $note",
             slot = form.slot,
-            eatenAt = Instant.now(),
+            eatenAt = eatenAt(form.slot),
             nutrients = portion,
         )
         _state.value = ReviewState.Ready(form.copy(saving = true))
@@ -541,7 +554,7 @@ class ReviewViewModel(
     }
 
     companion object {
-        fun factory(request: ReviewRequest, app: Context, container: AppContainer) =
-            viewModelFactory { initializer { ReviewViewModel(request, app.applicationContext, container) } }
+        fun factory(request: ReviewRequest, slot: MealSlot?, app: Context, container: AppContainer) =
+            viewModelFactory { initializer { ReviewViewModel(request, slot, app.applicationContext, container) } }
     }
 }

@@ -45,6 +45,8 @@ import app.mealmapper.domain.isIndianBarcode
 import app.mealmapper.domain.portionOptions
 import app.mealmapper.ui.common.fmt
 import app.mealmapper.ui.photo.PhotoKind
+import app.mealmapper.ui.common.MealPicker
+import app.mealmapper.ui.common.SlotReason
 import app.mealmapper.data.ai.AiParsing
 import app.mealmapper.ui.common.kcal
 import app.mealmapper.ui.theme.tabular
@@ -159,6 +161,8 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
     val unit = form.product.basis.unit
     val portion = form.portion
 
+    MealPicker(form.slot, SlotReason.CHOSEN, vm::setSlot)
+
     OutlinedTextField(
         value = form.name,
         onValueChange = vm::setName,
@@ -240,16 +244,6 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
     }
     Totals(portion)
 
-    Section("Meal")
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        MealSlot.entries.forEach { slot ->
-            FilterChip(
-                selected = form.slot == slot,
-                onClick = { vm.setSlot(slot) },
-                label = { Text(slot.name.lowercase().replaceFirstChar(Char::uppercase)) },
-            )
-        }
-    }
 
     OutlinedTextField(
         value = form.note,
@@ -394,6 +388,7 @@ private fun Double.fmt1(): String = "%.1f".format(this).removeSuffix(".0")
 private fun MealReview(form: MealForm, vm: ReviewViewModel) {
     val total = form.total
     val range = form.range
+    MealPicker(form.slot, SlotReason.CHOSEN, vm::setMealSlot)
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
@@ -495,16 +490,6 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
         }
     }
 
-    Section("Meal")
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        MealSlot.entries.forEach { slot ->
-            FilterChip(
-                selected = form.slot == slot,
-                onClick = { vm.setMealSlot(slot) },
-                label = { Text(slot.name.lowercase().replaceFirstChar(Char::uppercase)) },
-            )
-        }
-    }
 
     form.error?.let { Warning(it) }
 

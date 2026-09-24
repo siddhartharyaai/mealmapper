@@ -1,4 +1,4 @@
-# Meal Mapper: full test (version 1.1.0)
+# Meal Mapper: full test (version 1.2.0)
 
 About 60 minutes, in one sitting, plus the two-week meal check in Part H. Do the parts in order.
 Write down each FAIL with a screenshot. Pass = every step marked PASS, or the fail is explained in the notes.
@@ -11,6 +11,13 @@ Before you start: install the new APK over the old one (your settings, key and h
    bought per month in litres, people eating at home. Save. PASS if the screen shows "≈ N g oil and ghee per person per day".
 3. Settings > Gemini > Test key. PASS if "Ready … Google Search works".
 4. Home. PASS if the ticker matches Google Health > Food and drink (same kcal, today).
+
+## A2. Meal choice (3 min)
+- Every logging screen (photo, say/type, barcode, search) shows Breakfast · Lunch · Snack · Dinner at the top,
+  already set from the clock ("Set from the time"): 5-12 breakfast, 12-4 lunch, 4-7 snack (evening), 7 onwards dinner.
+- Type or say "for lunch", "nashta", "shaam ki chai" or "raat ka khana": the chip moves ("From what you said").
+- Tap a chip yourself: it stays, whatever you type after.
+- Save lunch at 9 pm: Google Health shows it at 1:30 pm under Lunch. PASS if all four behave as described.
 
 ## B. Packaged food (10 min)
 5. Scan barcode: a pack Open Food Facts knows. PASS if Review shows the nutrition facts first,

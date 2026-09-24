@@ -1,5 +1,11 @@
 package app.mealmapper.ui.scan
 
+import app.mealmapper.domain.MealSlot
+import app.mealmapper.domain.mealSlotFor
+import app.mealmapper.domain.mealSlotIn
+import app.mealmapper.ui.common.MealPicker
+import app.mealmapper.ui.common.SlotReason
+import java.time.LocalTime
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,7 +63,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 
 @Composable
-fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String) -> Unit) {
+fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String, slot: MealSlot) -> Unit) {
     val context = LocalContext.current
     var cameraAllowed by remember {
         mutableStateOf(
@@ -73,13 +79,15 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String) -> Un
 
     // Typed before scanning: the scan navigates away as soon as it reads a code.
     var note by rememberSaveable { mutableStateOf("") }
+    var slot by rememberSaveable { mutableStateOf(mealSlotFor(LocalTime.now())) }
+    var slotReason by rememberSaveable { mutableStateOf(SlotReason.TIME) }
     var typed by remember { mutableStateOf("") }
     var typedError by remember { mutableStateOf<String?>(null) }
     var torchOn by remember { mutableStateOf(false) }
 
     fun submitTyped() {
         val code = typed.filter(Char::isDigit)
-        if (isValidBarcode(code)) onBarcode(code, note.trim()) else typedError = "That number does not look right. Check the digits under the barcode."
+        if (isValidBarcode(code)) onBarcode(code, note.trim(), slot) else typedError = "That number does not look right. Check the digits under the barcode."
     }
 
     Scaffold { padding ->
@@ -100,9 +108,14 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String) -> Un
                 }
             }
 
+            MealPicker(slot, slotReason) { slot = it; slotReason = SlotReason.CHOSEN }
+
             OutlinedTextField(
                 value = note,
-                onValueChange = { note = it.take(80) },
+                onValueChange = {
+                    note = it.take(80)
+                    if (slotReason != SlotReason.CHOSEN) mealSlotIn(note)?.let { s -> slot = s; slotReason = SlotReason.WORDS }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("What and how much (optional)") },
                 placeholder = { Text("half pack · 2 servings · 150 g · 1 glass") },
@@ -120,7 +133,7 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String) -> Un
                 contentAlignment = Alignment.Center,
             ) {
                 if (cameraAllowed) {
-                    BarcodeCamera(torchOn = torchOn, onBarcode = { onBarcode(it, note.trim()) })
+                    BarcodeCamera(torchOn = torchOn, onBarcode = { onBarcode(it, note.trim(), slot) })
                 } else {
                     Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(

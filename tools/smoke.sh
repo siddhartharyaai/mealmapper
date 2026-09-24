@@ -72,9 +72,14 @@ tap_home() {
 }
 
 on_screen() {
-  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
-  adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
-  grep -q "$1" "$OUT/ui.xml" || { echo "Expected on screen: $1"; return 1; }
+  # The text may be below the fold on a small emulator: scroll down a little between looks.
+  for _ in 1 2 3; do
+    adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+    adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+    grep -q "$1" "$OUT/ui.xml" && return 0
+    swipe_pct 75 45; sleep 1
+  done
+  echo "Expected on screen: $1"; show_screen; return 1
 }
 
 crashed() {
@@ -138,7 +143,8 @@ run() {
   sleep 4
   if crashed; then echo "CRASH on databank Review ($label)"; cat "$OUT/crash.txt"; return 1; fi
   on_screen "Nutrition facts" || return 1
-  swipe_pct 80 30; sleep 2
+  on_screen "How much did you eat" || return 1
+  swipe_pct 70 45; sleep 2
   tap_text "+" && sleep 1 && tap_text "+" && sleep 2
   adb shell screencap -p /sdcard/review.png; adb pull /sdcard/review.png "$OUT/$label-review.png" >/dev/null
   on_screen "70 g\|2 rotis\|rotis" || return 1
@@ -151,6 +157,7 @@ run() {
   done
   [ -s "$OUT/tap.txt" ] || return 1
   sleep 3
+  on_screen "Set from the time" || return 1   # meal chips, pre-selected from the clock
   on_screen "Deepgram" || return 1
   if crashed; then echo "CRASH on Say or type ($label)"; cat "$OUT/crash.txt"; return 1; fi
   echo "OK: $label"

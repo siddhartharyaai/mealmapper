@@ -51,6 +51,12 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import app.mealmapper.domain.MealSlot
+import app.mealmapper.domain.mealSlotFor
+import app.mealmapper.domain.mealSlotIn
+import app.mealmapper.ui.common.MealPicker
+import app.mealmapper.ui.common.SlotReason
+import java.time.LocalTime
 import app.mealmapper.ui.common.VoiceInput
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -77,12 +83,25 @@ fun PhotoScreen(
     hasAiKey: Boolean,
     onBack: () -> Unit,
     onSettings: () -> Unit,
-    onAnalyse: (kind: PhotoKind, photos: List<Uri>, note: String, restaurant: Boolean, restaurantName: String) -> Unit,
+    onAnalyse: (kind: PhotoKind, photos: List<Uri>, note: String, restaurant: Boolean, restaurantName: String, slot: MealSlot) -> Unit,
 ) {
     val context = LocalContext.current
     var kind by rememberSaveable { mutableStateOf(if (mode == PhotoMode.TYPE) PhotoKind.MEAL else initialKind) }
     val typing = mode == PhotoMode.TYPE
     var note by rememberSaveable { mutableStateOf("") }
+    var slot by rememberSaveable { mutableStateOf(mealSlotFor(LocalTime.now())) }
+    var slotReason by rememberSaveable { mutableStateOf(SlotReason.TIME) }
+    // The meal follows the words ("for lunch", "raat ko") until the user taps a meal themselves.
+    fun setNote(text: String) {
+        note = text
+        if (slotReason == SlotReason.CHOSEN) return
+        val said = mealSlotIn(text)
+        if (said != null) {
+            slot = said; slotReason = SlotReason.WORDS
+        } else if (slotReason == SlotReason.WORDS) {
+            slot = mealSlotFor(LocalTime.now()); slotReason = SlotReason.TIME
+        }
+    }
     var restaurant by rememberSaveable { mutableStateOf(false) }
     var restaurantName by rememberSaveable { mutableStateOf("") }
     // Uris kept as strings so the list survives the camera app pushing Meal Mapper out of memory.
@@ -177,9 +196,13 @@ fun PhotoScreen(
                 OutlinedButton(onClick = onSettings) { Text("Open Settings") }
             }
 
+            if (kind != PhotoKind.MENU) {
+                MealPicker(slot, slotReason) { slot = it; slotReason = SlotReason.CHOSEN }
+            }
+
             OutlinedTextField(
                 value = note,
-                onValueChange = { note = it.take(if (kind == PhotoKind.MEAL) 200 else 80) },
+                onValueChange = { setNote(it.take(if (kind == PhotoKind.MEAL) 200 else 80)) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("What and how much (optional)") },
                 placeholder = {
@@ -195,7 +218,7 @@ fun PhotoScreen(
 
             if (kind == PhotoKind.MEAL) {
                 VoiceInput(
-                    onText = { spoken -> note = (if (note.isBlank()) spoken else "$note, $spoken").take(200) },
+                    onText = { spoken -> setNote((if (note.isBlank()) spoken else "$note, $spoken").take(200)) },
                     onUnavailable = { error = it },
                     prompt = "Speak your meal",
                 )
@@ -234,7 +257,7 @@ fun PhotoScreen(
             if (typing) {
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
-                    onClick = { onAnalyse(PhotoKind.MEAL, emptyList(), note.trim(), restaurant, restaurantName.trim()) },
+                    onClick = { onAnalyse(PhotoKind.MEAL, emptyList(), note.trim(), restaurant, restaurantName.trim(), slot) },
                     enabled = hasAiKey && note.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Estimate") }
@@ -299,7 +322,7 @@ fun PhotoScreen(
                 }
                 if (kind == PhotoKind.MEAL) {
                     OutlinedButton(
-                        onClick = { onAnalyse(kind, emptyList(), note.trim(), restaurant, restaurantName.trim()) },
+                        onClick = { onAnalyse(kind, emptyList(), note.trim(), restaurant, restaurantName.trim(), slot) },
                         enabled = hasAiKey && note.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("No photo: estimate from my words") }
@@ -307,7 +330,7 @@ fun PhotoScreen(
             } else {
                 val count = if (photos.size > 1) " (${photos.size} photos)" else ""
                 Button(
-                    onClick = { onAnalyse(kind, photos, note.trim(), restaurant, restaurantName.trim()) },
+                    onClick = { onAnalyse(kind, photos, note.trim(), restaurant, restaurantName.trim(), slot) },
                     enabled = hasAiKey && previews.size == photos.size,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
