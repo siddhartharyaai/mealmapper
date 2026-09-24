@@ -22,8 +22,14 @@ for node in re.finditer(r'<node [^>]*>', xml):
         print((x1 + x2) // 2, (y1 + y2) // 2)
         break
 PY
-  if [ ! -s "$OUT/tap.txt" ]; then echo "Not on screen: $1"; return 1; fi
+  if [ ! -s "$OUT/tap.txt" ]; then echo "Not on screen: $1"; show_screen; return 1; fi
   adb shell input tap $(cat "$OUT/tap.txt")
+}
+
+show_screen() {
+  # What is on screen, for the CI log (screenshots need a GitHub login to view).
+  echo "  screen texts: $(grep -o 'text="[^"]\+"' "$OUT/ui.xml" | sed 's/text=//' | head -40 | tr '\n' ' ')"
+  grep -o 'package="[^"]*"' "$OUT/ui.xml" | sort -u | head -3 | sed 's/^/  /'
 }
 
 tap_contains() {
