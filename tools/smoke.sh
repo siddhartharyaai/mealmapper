@@ -28,7 +28,16 @@ PY
 
 crashed() {
   adb logcat -d -b crash > "$OUT/crash.txt" 2>/dev/null
-  grep -q "$PKG" "$OUT/crash.txt"
+  grep -q "$PKG" "$OUT/crash.txt" || return 1
+  # Release builds are obfuscated by R8. Decode the stack trace with the mapping file when we have it.
+  local mapping retrace
+  mapping=$(find . -path '*mapping/release/mapping.txt' -o -name mapping.txt 2>/dev/null | head -1)
+  retrace=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/retrace 2>/dev/null | head -1)
+  if [ -n "$mapping" ] && [ -n "$retrace" ]; then
+    sed -E 's/^.*AndroidRuntime: //' "$OUT/crash.txt" | "$retrace" "$mapping" > "$OUT/crash-retraced.txt" 2>&1 \
+      && cp "$OUT/crash-retraced.txt" "$OUT/crash.txt"
+  fi
+  return 0
 }
 
 run() {
