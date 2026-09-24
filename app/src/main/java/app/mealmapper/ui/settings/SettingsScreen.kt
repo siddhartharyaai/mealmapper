@@ -33,7 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import app.mealmapper.data.ai.AiSettings
-import app.mealmapper.data.ai.GroqClient
+import app.mealmapper.data.ai.GeminiClient
 import app.mealmapper.data.settings.Profile
 import app.mealmapper.data.settings.ProfileStore
 import app.mealmapper.domain.ProfileRules
@@ -43,7 +43,7 @@ import app.mealmapper.ui.common.fmt
 fun SettingsScreen(
     store: ProfileStore,
     ai: AiSettings,
-    groq: GroqClient,
+    gemini: GeminiClient,
     onBack: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
@@ -104,7 +104,7 @@ fun SettingsScreen(
             )
 
             HorizontalDivider()
-            AiSection(ai, groq)
+            AiSection(ai, gemini)
 
             HorizontalDivider()
             Text("Health Connect", style = MaterialTheme.typography.titleMedium)
@@ -145,30 +145,27 @@ private fun NumberField(
     )
 }
 
-/** Groq API key (encrypted on the phone) and the two model names. */
+/** Gemini API key (encrypted on the phone) and the model name. */
 @Composable
-private fun AiSection(ai: AiSettings, client: GroqClient) {
+private fun AiSection(ai: AiSettings, client: GeminiClient) {
     val hasKey by ai.hasKey.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var keyInput by remember { mutableStateOf("") }
-    var visionModel by rememberSaveable { mutableStateOf(ai.visionModel) }
-    var webModel by rememberSaveable { mutableStateOf(ai.webModel) }
+    var model by rememberSaveable { mutableStateOf(ai.model) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
     fun test() {
         busy = true
-        status = "Testing…"
+        status = "Testing Gemini and Google Search… (up to 30 seconds)"
         scope.launch {
             status = runCatching { client.test() }.getOrElse { it.message ?: "Test failed." }
-            // The test picks and saves working models; show them.
-            visionModel = ai.visionModel
-            webModel = ai.webModel
+            model = ai.model
             busy = false
         }
     }
 
-    Text("AI: Groq (reads labels, finds products online)", style = MaterialTheme.typography.titleMedium)
+    Text("AI: Gemini (reads labels, finds products online)", style = MaterialTheme.typography.titleMedium)
     if (hasKey) {
         Text("API key saved and encrypted on this phone.", style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -180,7 +177,8 @@ private fun AiSection(ai: AiSettings, client: GroqClient) {
         }
     } else {
         Text(
-            "Create a key at console.groq.com → API Keys. Paste it here, never in a chat.",
+            "Create a key at aistudio.google.com → Get API key, in a project with billing on " +
+                "(web search is not in Gemini's free tier). Paste it here, never in a chat.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -188,7 +186,7 @@ private fun AiSection(ai: AiSettings, client: GroqClient) {
             value = keyInput,
             onValueChange = { keyInput = it.trim() },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Groq API key") },
+            label = { Text("Gemini API key") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -204,28 +202,19 @@ private fun AiSection(ai: AiSettings, client: GroqClient) {
         ) { Text("Save key") }
     }
     OutlinedTextField(
-        value = visionModel,
-        onValueChange = { visionModel = it.trim() },
+        value = model,
+        onValueChange = { model = it.trim() },
         modifier = Modifier.fillMaxWidth(),
-        label = { Text("Vision model (labels, pack photos)") },
+        label = { Text("Model") },
+        supportingText = { Text("Leave as is. If Google retires it, the app switches to the next model itself.") },
         singleLine = true,
     )
-    OutlinedTextField(
-        value = webModel,
-        onValueChange = { webModel = it.trim() },
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text("Web search model") },
-        supportingText = { Text("Test key picks working models for your key automatically.") },
-        singleLine = true,
-    )
-    if (visionModel != ai.visionModel || webModel != ai.webModel) {
+    if (model != ai.model) {
         TextButton(onClick = {
-            ai.visionModel = visionModel
-            ai.webModel = webModel
-            visionModel = ai.visionModel
-            webModel = ai.webModel
-            status = "Models saved."
-        }) { Text("Use these models") }
+            ai.model = model
+            model = ai.model
+            status = "Model saved."
+        }) { Text("Use this model") }
     }
     status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
 }

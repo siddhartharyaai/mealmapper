@@ -101,7 +101,7 @@ data class ReviewForm(
 
 sealed interface ReviewState {
     data class Loading(val message: String) : ReviewState
-    /** Nothing usable found. [canSearchWeb] is false when no Groq key is set. */
+    /** Nothing usable found. [canSearchWeb] is false when no Gemini key is set. */
     data class NotFound(
         val barcode: String?,
         val productName: String?,
@@ -144,7 +144,7 @@ class ReviewViewModel(
         }
     }
 
-    /** Saved product -> Open Food Facts -> web (automatic when a Groq key is set). */
+    /** Saved product -> Open Food Facts -> web (automatic when a Gemini key is set). */
     private suspend fun barcodeFlow(code: String) {
         c.productCache.get(code)?.let {
             show(it, ProductSource.Saved)

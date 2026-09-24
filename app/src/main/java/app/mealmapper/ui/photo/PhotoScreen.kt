@@ -137,7 +137,7 @@ fun PhotoScreen(
 
             if (!hasAiKey) {
                 Text(
-                    "Photos are read by AI (Groq). Add your Groq API key in Settings first.",
+                    "Photos are read by Gemini. Add your Gemini API key in Settings first.",
                     color = MaterialTheme.colorScheme.error,
                 )
                 OutlinedButton(onClick = onSettings) { Text("Open Settings") }

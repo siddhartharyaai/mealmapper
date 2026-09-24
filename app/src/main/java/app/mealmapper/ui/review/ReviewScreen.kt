@@ -133,7 +133,7 @@ private fun NotFound(
     Button(onClick = onLabel, modifier = Modifier.fillMaxWidth()) { Text("Photograph the label (most accurate)") }
     when {
         !state.canSearchWeb -> OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) {
-            Text("Add a Groq key to search the web")
+            Text("Add a Gemini key to search the web")
         }
         else -> OutlinedButton(onClick = onWeb, modifier = Modifier.fillMaxWidth()) {
             Text(if (state.webTried) "Search the web again" else "Find it online")

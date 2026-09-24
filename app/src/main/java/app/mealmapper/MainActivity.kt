@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             store = container.profile,
                             ai = container.aiSettings,
-                            groq = container.groq,
+                            gemini = container.gemini,
                             onBack = { nav.popBackStack() },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )

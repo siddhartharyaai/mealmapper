@@ -36,45 +36,29 @@ object AiParsing {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * Parses a Groq (OpenAI-compatible) chat completion. Sites come from the search tool's own results
-     * (executed_tools), never from URLs the model writes in its text.
+     * Parses a Gemini Interactions response: text from "model_output" steps, sources from url_citation
+     * annotations (the pages Google Search actually used). Thought steps are ignored.
      */
-    fun reply(body: String): AiReply {
+    fun interaction(body: String): AiReply {
         val root = json.parseToJsonElement(body).jsonObject
-        val message = ((root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject)?.get("message") as? JsonObject
-            ?: throw AiException(errorMessage(body) ?: "The AI returned no answer.")
-        val text = stripThinking(message.str("content").orEmpty())
-        val tools = message["executed_tools"]
-        // Structured "url" fields first; browser_search may report pages only as text, either in the tool
-        // output or as page snippets placed before the answer. The model's own JSON answer is excluded.
-        val snippets = text.substringBefore(lastJsonObject(text) ?: "\u0000")
-        val urls = urlsIn(tools)
-            .ifEmpty { textIn(tools).flatMap { URL.findAll(it).map { m -> m.value }.toList() } }
-            .ifEmpty { URL.findAll(snippets).map { it.value }.toList() }
-        val sites = urls.mapNotNull(::site).distinct()
-        return AiReply(text, sites, root.str("model").orEmpty())
+        val steps = (root["steps"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+        val blocks = steps.filter { it.str("type") == "model_output" }
+            .flatMap { (it["content"] as? JsonArray).orEmpty() }
+            .mapNotNull { it as? JsonObject }
+            .filter { it.str("type") == null || it.str("type") == "text" }
+        val text = blocks.mapNotNull { it.str("text") }.joinToString("\n")
+            .ifBlank { root.str("output_text").orEmpty() }
+        if (text.isBlank()) throw AiException(errorMessage(body) ?: "Gemini returned no answer.")
+        val citations = blocks.flatMap { (it["annotations"] as? JsonArray).orEmpty() }
+            .mapNotNull { it as? JsonObject }
+            .filter { it.str("type") == "url_citation" }
+        val sites = citations.mapNotNull { c -> c.str("title")?.removePrefix("www.") ?: c.str("url")?.let(::site) }
+            .distinct()
+        return AiReply(stripThinking(text), sites, root.str("model").orEmpty())
     }
 
     /** Reasoning models may put their thinking in <think> tags before the answer. */
     fun stripThinking(text: String): String = text.replace(Regex("(?s)<think>.*?</think>"), "").trim()
-
-    /** Every "url" value anywhere inside the tool results. The exact nesting differs by tool version. */
-    private fun urlsIn(e: JsonElement?): List<String> = when (e) {
-        is JsonObject -> e.entries.flatMap { (k, v) ->
-            if (k == "url" && v is JsonPrimitive && v.isString) listOf(v.content) else urlsIn(v)
-        }
-        is JsonArray -> e.flatMap(::urlsIn)
-        else -> emptyList()
-    }
-
-    private fun textIn(e: JsonElement?): List<String> = when (e) {
-        is JsonObject -> e.values.flatMap(::textIn)
-        is JsonArray -> e.flatMap(::textIn)
-        is JsonPrimitive -> if (e.isString) listOf(e.content) else emptyList()
-        else -> emptyList()
-    }
-
-    private val URL = Regex("""https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}[^\s"'<>)\]]*""")
 
     private fun site(url: String): String? = runCatching {
         java.net.URI(url).host?.removePrefix("www.")

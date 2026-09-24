@@ -14,24 +14,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * The user's Groq API key, encrypted with an Android Keystore key that never leaves the phone's secure
- * hardware, plus the two model names. The key is never logged, never in the repo, never in BuildConfig.
+ * The user's Gemini API key, encrypted with an Android Keystore key that never leaves the phone's secure
+ * hardware, plus the model name. The key is never logged, never in the repo, never in BuildConfig.
  */
 class AiSettings(context: Context) {
-    private val prefs = context.getSharedPreferences("groq", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("gemini_v2", Context.MODE_PRIVATE)
 
     private val _hasKey = MutableStateFlow(prefs.contains(KEY_CIPHERTEXT))
     val hasKey: StateFlow<Boolean> = _hasKey.asStateFlow()
 
-    /** Reads images: nutrition labels and pack fronts. */
-    var visionModel: String
-        get() = prefs.getString(VISION, null) ?: DEFAULT_VISION_MODEL
-        set(value) = prefs.edit().putString(VISION, value.trim().ifEmpty { DEFAULT_VISION_MODEL }).apply()
-
-    /** Searches the web for a product's nutrition table. */
-    var webModel: String
-        get() = prefs.getString(WEB, null)?.takeUnless { it == "groq/compound" } ?: DEFAULT_WEB_MODEL
-        set(value) = prefs.edit().putString(WEB, value.trim().ifEmpty { DEFAULT_WEB_MODEL }).apply()
+    /** One model for everything: reading photos and searching the web. */
+    var model: String
+        get() = prefs.getString(MODEL, null) ?: DEFAULT_MODEL
+        set(value) = prefs.edit().putString(MODEL, value.trim().ifEmpty { DEFAULT_MODEL }).apply()
 
     fun saveKey(apiKey: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -73,16 +68,13 @@ class AiSettings(context: Context) {
     }
 
     companion object {
-        /** Groq's documented vision model as of 21 September 2026 (Llama 4 Scout left the free tier in June). */
-        const val DEFAULT_VISION_MODEL = "qwen/qwen3.8-27b"
-        /** Production model with Groq's built-in browser_search tool. */
-        const val DEFAULT_WEB_MODEL = "openai/gpt-oss-120b"
+        /** Google's recommended model for new projects (models page, 24 Sep 2026); billing on for search. */
+        const val DEFAULT_MODEL = "gemini-3.8-flash"
         private const val KEYSTORE = "AndroidKeyStore"
-        private const val ALIAS = "mealmapper_ai_key"
+        private const val ALIAS = "mealmapper_gemini_v2"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val KEY_CIPHERTEXT = "key_ciphertext"
         private const val KEY_IV = "key_iv"
-        private const val VISION = "vision_model"
-        private const val WEB = "web_model"
+        private const val MODEL = "model"
     }
 }

@@ -57,9 +57,9 @@ Pass: Google Health always matches the app after edit/delete.
 ## Phase 3: Medium
 
 Build
-- Settings: paste Groq API key (stored encrypted, never in the repo). Gemini was dropped: free keys returned 429 "limit 0".
-  Vision model qwen/qwen3.8-27b (labels, pack fronts); web model openai/gpt-oss-120b with the browser_search tool
-  (confirmed on console.groq.com/docs/models and /browser-search on 24 Sep 2026; groq/compound no longer offered).
+- Settings: paste Gemini API key (stored encrypted). Billing must be on: Google Search grounding is not in
+  Gemini's free tier for any 3.x model (pricing page, 24 Sep 2026); paid tier includes 5,000 searches/month.
+  Model gemini-3.8-flash via the Interactions API (generateContent is marked Legacy); Groq was tried and dropped.
 - **Web product lookup** (added after the Britannia Nutri Choice test, where Open Food Facts had the name but
   no values). Trigger: barcode not found / no values, or a photo of the front of a pack.
   Gemini with Google Search grounding finds the product's nutrition table on the maker's site and Indian

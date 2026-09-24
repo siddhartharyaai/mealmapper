@@ -7,7 +7,7 @@ import android.net.Uri
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 
-/** Loads a photo (camera or gallery), fixes rotation, shrinks it, and returns JPEG bytes for the AI (Groq limits base64 images to 4 MB; these are well under). */
+/** Loads a photo (camera or gallery), fixes rotation, shrinks it, and returns JPEG bytes for the AI (Gemini limits a request to 20 MB; these are well under). */
 object ImageTools {
     private const val MAX_SIDE = 1600
     private const val QUALITY = 85

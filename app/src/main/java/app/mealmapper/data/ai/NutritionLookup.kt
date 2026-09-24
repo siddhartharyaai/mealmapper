@@ -11,11 +11,11 @@ sealed interface LookupOutcome {
 
 /**
  * AI jobs, all limited to reading, never estimating:
- * - web: find the product's printed nutrition table on real web pages (groq/compound web search).
+ * - web: find the product's printed nutrition table on real web pages (Gemini with Google Search).
  * - identify: read brand, variant and pack size from a photo of the pack front (vision model).
  * - label: copy the nutrition table from a photo of the pack (vision model).
  */
-class NutritionLookup(private val groq: GroqClient) {
+class NutritionLookup(private val gemini: GeminiClient) {
 
     suspend fun web(barcode: String?, knownName: String?, note: String, frontPhoto: ByteArray?): LookupOutcome {
         // The search system reads no images, so a pack-front photo is first turned into an exact product name.
@@ -30,7 +30,7 @@ class NutritionLookup(private val groq: GroqClient) {
             barcode?.let { add("Barcode (EAN): $it") }
             if (note.isNotBlank()) add("User note: $note")
         }.joinToString("\n")
-        val reply = groq.webSearch(WEB_PROMPT.replace("{CLUES}", clues))
+        val reply = gemini.webSearch(WEB_PROMPT.replace("{CLUES}", clues))
 
         // Hard rule: numbers only when the search actually returned pages. Otherwise it could be the model's memory.
         if (reply.sites.isEmpty()) {
@@ -52,7 +52,7 @@ class NutritionLookup(private val groq: GroqClient) {
 
     /** "Britannia Nutri Choice Digestive, 125 g" from a pack-front photo, or null if unreadable. */
     private suspend fun identify(photo: ByteArray): String? {
-        val text = groq.vision(IDENTIFY_PROMPT, listOf(photo)).text.lines().firstOrNull { it.isNotBlank() }?.trim()
+        val text = gemini.vision(IDENTIFY_PROMPT, listOf(photo)).text.lines().firstOrNull { it.isNotBlank() }?.trim()
         return text?.takeUnless { it.equals("UNKNOWN", ignoreCase = true) || it.length < 3 }?.take(120)
     }
 
@@ -60,7 +60,7 @@ class NutritionLookup(private val groq: GroqClient) {
         val prompt = LABEL_PROMPT
             .replace("{NAME}", knownName ?: "unknown")
             .replace("{NOTE}", note.ifBlank { "none" })
-        val ai = AiParsing.nutrition(groq.vision(prompt, listOf(labelPhoto)).text)
+        val ai = AiParsing.nutrition(gemini.vision(prompt, listOf(labelPhoto)).text)
         if (!ai.found || ai.per100 == null) {
             return LookupOutcome.NotFound(ai.note ?: "No nutrition table found in the photo. Take it closer, flat, in good light.")
         }
