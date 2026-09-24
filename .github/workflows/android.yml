@@ -28,14 +28,14 @@ jobs:
       - name: Unit tests
         run: ./gradlew --stacktrace testDebugUnitTest
 
-      - name: Build debug APK
-        run: ./gradlew --stacktrace assembleDebug
+      - name: Build APKs
+        run: ./gradlew --stacktrace assembleDebug assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: meal-mapper-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: meal-mapper-${{ github.run_number }}
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       # Phones cannot download Actions artifacts without a GitHub login.
@@ -45,10 +45,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk meal-mapper-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk meal-mapper.apk
+          ls -lh meal-mapper.apk
           gh release delete latest-debug --yes --cleanup-tag || true
-          gh release create latest-debug meal-mapper-debug.apk \
+          gh release create latest-debug meal-mapper.apk \
             --prerelease \
             --target "$GITHUB_SHA" \
-            --title "Meal Mapper (latest debug build)" \
+            --title "Meal Mapper (latest build)" \
             --notes "Build ${{ github.run_number }} from ${GITHUB_SHA::7} on ${{ github.ref_name }}."

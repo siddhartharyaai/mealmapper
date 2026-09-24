@@ -16,8 +16,8 @@ android {
     }
 
     signingConfigs {
-        // Committed debug key so every CI build installs over the previous one.
-        // Release builds will use a key kept out of the repo.
+        // Committed key so every CI build installs over the previous one.
+        // Personal sideloaded app only. A Play Store release must use a key kept out of the repo.
         getByName("debug") {
             storeFile = file("debug.keystore")
             storePassword = "android"
@@ -29,6 +29,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
