@@ -8,6 +8,7 @@ class MealMapperApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         container = AppContainer(this)
     }
 }
