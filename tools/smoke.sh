@@ -52,13 +52,21 @@ PY
   adb shell input tap $(cat "$OUT/tap.txt")
 }
 
+swipe_pct() {
+  # Swipe between two heights given in percent of the screen (the emulator's size varies).
+  local size w h
+  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1)
+  w=${size%x*}; h=${size#*x}
+  adb shell input swipe $((w / 2)) $((h * $1 / 100)) $((w / 2)) $((h * $2 / 100)) 400
+}
+
 tap_home() {
   # Home scrolls: go to the top, then look for the tile, scrolling down a little at a time.
-  for _ in 1 2; do adb shell input swipe 500 700 500 1600 200; done
+  swipe_pct 30 85; swipe_pct 30 85
   sleep 1
   for _ in 1 2 3 4; do
     tap_text "$1" && return 0
-    adb shell input swipe 500 1500 500 1000 300; sleep 1
+    swipe_pct 75 45; sleep 1
   done
   return 1
 }
@@ -130,7 +138,7 @@ run() {
   sleep 4
   if crashed; then echo "CRASH on databank Review ($label)"; cat "$OUT/crash.txt"; return 1; fi
   on_screen "Nutrition facts" || return 1
-  adb shell input swipe 500 1500 500 600 300; sleep 2
+  swipe_pct 80 30; sleep 2
   tap_text "+" && sleep 1 && tap_text "+" && sleep 2
   adb shell screencap -p /sdcard/review.png; adb pull /sdcard/review.png "$OUT/$label-review.png" >/dev/null
   on_screen "70 g\|2 rotis\|rotis" || return 1
