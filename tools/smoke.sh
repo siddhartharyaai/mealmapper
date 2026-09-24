@@ -54,6 +54,10 @@ run() {
   sleep 8
   adb shell screencap -p /sdcard/scan.png; adb pull /sdcard/scan.png "$OUT/$label-scan.png" >/dev/null
   if crashed; then echo "CRASH on Scan ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  adb shell input keyevent 4; sleep 3
+  tap_text "Settings" || return 1
+  sleep 4
+  if crashed; then echo "CRASH on Settings ($label)"; cat "$OUT/crash.txt"; return 1; fi
   echo "OK: $label"
 }
 
