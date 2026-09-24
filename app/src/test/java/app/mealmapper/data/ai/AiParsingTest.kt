@@ -98,4 +98,10 @@ class AiParsingTest {
     }
 
     @Test fun errorMessageFromGarbage() = assertNull(AiParsing.errorMessage("<html>"))
+
+    @Test fun browserSearchSitesFromToolText() {
+        val body = """{"choices":[{"message":{"content":"{}","executed_tools":[{"type":"browser_search",
+            "output":"【0†Nutri Choice Digestive†www.bigbasket.com】 Opened https://www.bigbasket.com/pd/40012345/ and https://britannia.co.in/nutri."}]}}]}"""
+        assertEquals(listOf("bigbasket.com", "britannia.co.in"), AiParsing.reply(body).sites)
+    }
 }

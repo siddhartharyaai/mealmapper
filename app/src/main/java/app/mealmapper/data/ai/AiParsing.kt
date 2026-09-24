@@ -44,7 +44,10 @@ object AiParsing {
         val message = ((root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject)?.get("message") as? JsonObject
             ?: throw AiException(errorMessage(body) ?: "The AI returned no answer.")
         val text = stripThinking(message.str("content").orEmpty())
-        val sites = urlsIn(message["executed_tools"]).mapNotNull(::site).distinct()
+        val tools = message["executed_tools"]
+        // Structured "url" fields first; some tools (browser_search) only report pages inside their text output.
+        val urls = urlsIn(tools).ifEmpty { textIn(tools).flatMap { URL.findAll(it).map { m -> m.value }.toList() } }
+        val sites = urls.mapNotNull(::site).distinct()
         return AiReply(text, sites, root.str("model").orEmpty())
     }
 
@@ -59,6 +62,15 @@ object AiParsing {
         is JsonArray -> e.flatMap(::urlsIn)
         else -> emptyList()
     }
+
+    private fun textIn(e: JsonElement?): List<String> = when (e) {
+        is JsonObject -> e.values.flatMap(::textIn)
+        is JsonArray -> e.flatMap(::textIn)
+        is JsonPrimitive -> if (e.isString) listOf(e.content) else emptyList()
+        else -> emptyList()
+    }
+
+    private val URL = Regex("""https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}[^\s"'<>)\]]*""")
 
     private fun site(url: String): String? = runCatching {
         java.net.URI(url).host?.removePrefix("www.")

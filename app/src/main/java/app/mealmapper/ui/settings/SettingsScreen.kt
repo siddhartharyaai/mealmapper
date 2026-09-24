@@ -161,6 +161,9 @@ private fun AiSection(ai: AiSettings, client: GroqClient) {
         status = "Testing…"
         scope.launch {
             status = runCatching { client.test() }.getOrElse { it.message ?: "Test failed." }
+            // The test picks and saves working models; show them.
+            visionModel = ai.visionModel
+            webModel = ai.webModel
             busy = false
         }
     }
@@ -212,7 +215,7 @@ private fun AiSection(ai: AiSettings, client: GroqClient) {
         onValueChange = { webModel = it.trim() },
         modifier = Modifier.fillMaxWidth(),
         label = { Text("Web search model") },
-        supportingText = { Text("Leave both as they are unless Test key says a model is not available.") },
+        supportingText = { Text("Test key picks working models for your key automatically.") },
         singleLine = true,
     )
     if (visionModel != ai.visionModel || webModel != ai.webModel) {
