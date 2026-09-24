@@ -1,7 +1,9 @@
-# Meal Mapper: Build Spec (v1)
+# Meal Mapper: Build Spec (v2)
 
 Personal Android app. One user. No backend. No login.
 It logs food to Health Connect. Google Health and Samsung Health read from Health Connect.
+
+**Core rule: the AI reads and recognises. The databank supplies the numbers. The user's stated portion wins.**
 
 ## 0. User and context (read this first)
 
@@ -12,121 +14,163 @@ Every default in this app is Indian: food names, portions, units, labels, meal t
 
 ## 1. Scope
 
-In v1, three capture modes. Every mode has an optional **context text field**
-("2 phulkas, no ghee", "restaurant", "half the plate", "Amul Taaza, 200 ml").
-The context goes to the lookup/prompt and is saved with the entry.
+Three ways in. Nothing else.
 
-1. **Barcode**: live camera scan (or typed number) -> Open Food Facts lookup -> nutrition per serving.
-   Not found (common for Indian products) -> offer "Photograph the label" in one tap.
-2. **Camera**: take a photo now. User picks Meal or Label.
-3. **Upload**: pick an existing photo from the gallery (Android Photo Picker, no storage permission).
-   User picks Meal or Label.
+1. **Barcode**: live scan or typed number -> Open Food Facts.
+   Not found or no nutrition (common for Indian products) -> "Photograph the label" in one tap.
+2. **Camera**: take a photo now.
+3. **Upload**: pick photos from the gallery (Android Photo Picker, no storage permission).
 
-Meal photo -> Gemini estimate. Label photo -> Gemini reads the printed table (exact numbers).
+Camera and Upload take one or more photos (plate + label is a valid pair).
+The app decides meal vs label per photo; the user can override with one tap.
 
-4. Review screen: user edits every number and the portion before save.
-5. Save -> one `NutritionRecord` in Health Connect, with meal type.
-6. Local history (last 30 days) with "log again".
+**Every mode has the "What and how much" field before analysis**, and it stays editable on Review.
+Examples: "2 phulkas, 1 katori dal, 1 tsp ghee", "200 g paneer bhurji", "half the pack", "restaurant, shared with 2".
 
-Not in v1: accounts, cloud sync, charts, goals, streaks, recipes, social, ads, Play Store listing.
-Google Health and Samsung Health already do charts and goals. Do not rebuild them.
+Then: Review -> Save to Health Connect -> History.
 
-## 2. Stack
+### Also in scope (small, high value)
 
-| Layer | Choice | Reason |
-|---|---|---|
-| Language / UI | Kotlin, Jetpack Compose, Material 3 | Native. Health Connect SDK is Kotlin-first. |
-| Camera | CameraX | Standard. |
-| Barcode | ML Kit Barcode Scanning (bundled model) | On-device, free, offline, fast. |
-| Food DB | Open Food Facts API v2 (`/api/v2/product/{code}`) | Free, no key. Set a custom `User-Agent: MealMapper/1.0 (email)`. |
-| Vision | Gemini API, REST, structured JSON output | Cheap, good vision. Pin the model ID in one constant. |
-| Health | `androidx.health.connect:connect-client` | Single write target for both health apps. |
-| Storage | Room (history), DataStore + Android Keystore (API key) | Local only. |
-| Networking | Ktor client or Retrofit + kotlinx.serialization | Pick one. Do not mix. |
-| DI | Manual (one `AppContainer`) | App is small. Hilt is not necessary. |
-| Build | Gradle, GitHub Actions -> signed APK artifact | No Android Studio needed on the build path. |
+- **Recent and favourites**: one tap to log chai / phulka / usual breakfast again. This is the most-used path.
+- **History (30 days)**: edit or delete an entry; delete also removes it from Health Connect.
+- **Meal time**: default now; can set "at lunch" or a time when logging late.
+- **My measures** (Settings): my katori (ml), my cup, my glass, my roti (g). Set once; used everywhere.
 
-minSdk 28, targetSdk current. One `:app` module.
+### Not in scope
 
-## 3. Architecture
+Goals, charts, streaks, water, weight, accounts, cloud sync, social, ads, Play Store listing.
+Google Health does charts and goals. **Recipe builder is deferred**: add it only if logging
+home dishes by name + katori proves inaccurate in real use (see section 9).
+
+## 2. Portion rules
+
+Priority, highest first. The Review screen shows which one was used for every item.
+
+1. **User-stated amount** (typed in the field, or edited on Review). Always wins.
+2. **Label / barcode serving** (packaged food).
+3. **Visual estimate** by the AI. Marked "estimated" in amber. Never silently accepted as fact.
+
+Units the app understands: g, kg, ml, l, katori, bowl, plate, cup, glass, tsp, tbsp, piece, roti/phulka count,
+slice, "half", "quarter", "x2", fractions of pack or serving.
+Unit -> grams uses: My measures first, then a per-food piece weight from the databank (INDB serving sizes),
+then defaults: katori 150 ml, cup 150 ml, glass 250 ml, tsp 5 ml, tbsp 15 ml.
+Volume -> grams uses a density per food category (dal/curry 1.0, rice 0.8, curd 1.03, oil/ghee 0.91).
+
+## 3. Data architecture: where numbers come from
 
 ```
-ui/            Compose screens + ViewModels (Capture, Review, History, Settings)
-domain/        NutritionEstimate (data class), Portion math, validation
-data/off/      OpenFoodFactsClient + mapper -> NutritionEstimate
-data/gemini/   GeminiClient + prompt + JSON schema -> NutritionEstimate
-data/health/   HealthConnectWriter (permissions, write, availability check)
-data/history/  Room DB (MealEntry), DAO
+photos + "what and how much" text
+        |
+        v
+[Gemini call 1: recognise]  -> JSON: items[{name, aliases, form: raw|cooked|fried|packaged,
+        |                         amount:{value, unit, source: user|visual}, cooking_fat}]
+        |                         NO nutrient numbers allowed in this schema.
+        v
+[Local databank search]      -> top 5 candidates per item (FTS, Hinglish aliases)
+        |
+        v
+[Gemini call 2: pick]        -> for each item: one candidate ID from the list, or NONE.
+        |                         Enum-constrained output: it cannot invent an ID or a number.
+        v
+[App computes]               -> grams x per-100 g values. Deterministic, unit-tested.
+        |
+        v
+Review: each item shows "Dal tadka · INDB · 180 g (you said 1 katori)"; tap to change match or amount.
 ```
 
-All three sources map to one type: `NutritionEstimate`. The Review screen and the writer only know this type.
+- **Label photo**: Gemini transcribes the printed table verbatim (per 100 g and per serving). The app
+  validates: 4/4/9 energy check, per-serving x (100 / serving g) = per 100 g within 5%, physical bounds.
+  Fails -> the user sees the numbers highlighted and fixes them. Here the AI reads, it does not estimate.
+- **No databank match (NONE)**: Gemini may then give an estimate, shown as "AI estimate, not in databank"
+  in amber. The user must confirm it. These cases are logged locally so we know what to add to the databank.
+- **Cooking fat**: logged as its own line (ghee/oil from the databank), never hidden inside a dish.
+  If the dish entry already includes fat (INDB recipes do), extra fat is only added when the user says so
+  ("extra ghee on top").
 
-```kotlin
-data class NutritionEstimate(
-    val name: String,
-    val source: Source,            // BARCODE, MEAL_PHOTO, LABEL_PHOTO
-    val servingGrams: Double?,     // null if unknown
-    val energyKcal: Double,
-    val proteinG: Double,
-    val carbsG: Double,
-    val fatG: Double,
-    val saturatedFatG: Double?,
-    val sugarG: Double?,
-    val fiberG: Double?,
-    val sodiumMg: Double?,
-    val confidence: Confidence,    // HIGH (barcode/label), MEDIUM, LOW (photo)
-    val items: List<String> = emptyList() // photo: detected components
-)
-```
+## 4. Databank (offline, inside the APK)
 
-## 4. Key rules
+| Source | Use | Licence | Notes |
+|---|---|---|---|
+| INDB 2024: 1,014 recipes | Indian home dishes, cooked, per 100 g + serving sizes | Paper CC BY; repo has no licence file | Personal use. Recompute fried items (below). |
+| INDB / IFCT 2017: 1,095 ingredients | Raw Indian ingredients, oils, ghee, flours, dals | IFCT: ICMR-NIN | Lab-measured in India. Gold standard for raw. |
+| USDA FoodData Central: Foundation + SR Legacy | Generic and international ingredients | Public domain (CC0) | Very reliable. |
+| USDA FNDDS | International dishes "as eaten" (pasta, pizza, sandwiches) | Public domain (CC0) | For restaurant / non-Indian meals. |
+| Open Food Facts | Packaged products, live by barcode | ODbL | Crowd-sourced: always shown as "check against pack". |
 
-- Never save without the Review screen. The user confirms every save.
-- Show the source and confidence on the Review screen. A photo estimate is an estimate.
-- Portion control on Review: grams field and quick multipliers (0.5x, 1x, 1.5x, 2x). All macros scale from per-100 g values.
-- Energy check: warn if `4*protein + 4*carbs + 9*fat` differs from kcal by more than 15%.
-- Gemini prompt: return JSON only, validated against a schema. Include the user's context text verbatim.
+Not used: Nutritionix, FatSecret, Edamam (terms restrict storing data; pricing can change).
+Considered: UK CoFID (Indian restaurant dishes); add only if licence is confirmed and a gap is proven.
 
-## 4a. India rules
+### Build pipeline (`tools/fooddb/`, runs in CI, output committed as `app/src/main/assets/food.db`)
 
-- Reference data: estimates follow IFCT 2017 (NIN, Hyderabad) values for Indian foods, not USDA defaults.
-- Components: the prompt asks for each visible component with grams, plus the cooking fat (ghee/oil, in tsp) as its own line. Tadka and ghee are the biggest error source.
-- Home vs restaurant: default is home cooking. If context says restaurant/hotel/dhaba, or the photo looks like one, assume more oil and bigger portions.
-- Diet: never assume meat or fish. Ambiguous protein -> paneer, soya, egg, dal. If the photo clearly shows meat, say so and do not guess.
-- Units on Review: grams plus Indian household units: katori (150 ml), roti/phulka (count), tsp/tbsp ghee, cup (chai, 150 ml), glass (250 ml), piece.
-- Packaged labels (FSSAI format): read per 100 g and per serving; prefer per 100 g and scale. Handle "Energy (kcal)", "Total Sugars", "Added Sugars", "Sodium (mg)". Label text may be English or Hindi.
-- Barcodes: Indian products start with 890. Try Open Food Facts first; fall back to label photo.
-- Meal types (IST, Mumbai habits): breakfast 05:00-11:00, lunch 11:00-16:00, snack 16:00-20:30, dinner 20:30-05:00. User can change it.
-- Frequent items (chai, phulka, dal) get "log again" from history. This is the most-used path.
-- Health Connect write: set `name`, `mealType` (default from time of day), start/end time, and all non-null nutrients. Keep the returned record ID in history so "delete" also deletes it from Health Connect.
-- API key: user pastes it on the Settings screen once. Store encrypted. Never commit it. Never put it in `BuildConfig`.
-- Offline: barcode scan works; lookup queues are not in v1. Show a clear error and a retry button.
+1. Download pinned versions of each source (checksum recorded).
+2. Normalise to one schema: id, name, aliases, source, source_id, licence, basis (g/ml),
+   per-100 values (kcal, protein, carbs, sugar, fat, sat fat, fibre, sodium), serving (label + g), quality.
+3. **Recompute INDB recipes from their ingredient lines** (`recipes.xlsx`), not the published totals.
+   Lines with "for frying" oil (e.g. poori: 80 g atta + 480 ml oil) are replaced by absorbed oil =
+   a fat-uptake figure per fried-food class, taken from published measurements (poori: 28-30% oil,
+   Fibres-in-poori study). Every corrected row stores the rule and citation.
+4. Validation gates, each row: 4/4/9 energy within 15% (fibre at 2 kcal/g); macros <= 100 g per 100 g;
+   kcal <= 900; cross-source check for foods present in two sources (flag if > 25% apart).
+5. Quality flag per row: `verified` (passes all), `corrected` (recomputed, cited), `flagged` (excluded from
+   auto-match; searchable with a warning).
+6. Aliases: Hindi / Marathi / Gujarati / common spellings (dal/daal/dhal, bhindi/okra, dahi/curd).
+   An LLM may propose aliases and classify fried/not fried at build time. **An LLM never writes a nutrient value.**
+7. Report: counts per source and flag, and every change vs the published value, committed as `tools/fooddb/REPORT.md`.
 
-## 5. Health Connect checklist
+Measured in September 2026 on INDB: 118 of 1,014 recipes have implausible fat (> 45 g / 100 g, not oil or ghee),
+mostly deep-fried items where all frying oil is counted as eaten; 39 fail the 4/4/9 energy check.
 
-- Manifest: `android.permission.health.WRITE_NUTRITION` (and `READ_NUTRITION` only if history reads back).
-- Declare the permissions-rationale activity (`ACTION_SHOW_PERMISSIONS_RATIONALE`) and, on Android 14+, the `VIEW_PERMISSION_USAGE` activity-alias. The permission dialog fails without these.
-- Check `HealthConnectClient.getSdkStatus()` before any call.
-- Samsung Health: in Samsung Health > Settings > Health Connect, allow Nutrition read. Test this on day 1.
+## 5. Accuracy: how we know it works
 
-## 6. Design
+**Golden set before step 5 ships**: 30 of the user's real meals, weighed on a kitchen scale, with ingredient
+amounts noted. Target: total kcal within 15% for 80% of meals when the user states portions; report the
+error without stated portions separately. Re-run after every prompt or databank change.
+Plus 20 packaged products checked label-vs-app.
 
-- Dark and light themes from Material 3 dynamic color. No custom gradients, no emoji icons.
-- Home = three large choices: Barcode / Camera / Upload. Context field on each capture screen.
-- One primary action per screen. Numbers in a tabular font.
-- Every error says what happened and what to do next.
+## 6. Stack
 
-## 7. Build order (each step ends in a working APK)
+| Layer | Choice |
+|---|---|
+| UI | Kotlin, Jetpack Compose, Material 3 |
+| Camera / barcode | CameraX + ML Kit barcode (bundled) |
+| Photos | Android Photo Picker |
+| AI | Gemini API over REST, structured JSON output with response schema. Model ID pinned in one constant, checked at build time. |
+| Databank | SQLite asset + Room, FTS4 search |
+| Health | Health Connect `connect-client` |
+| Storage | Room (history, favourites, my measures), DataStore + Keystore (API key) |
+| Networking | OkHttp + kotlinx.serialization |
+| Build | GitHub Actions -> signed arm64 APK on the `latest-debug` release |
 
-1. Skeleton: Compose app, theme, navigation, CI builds a debug APK.
-2. Health Connect: permission flow + write a hard-coded record. Confirm it shows in Google Health and Samsung Health. **Gate: if Samsung Health does not show it, stop and decide.**
-3. Barcode: CameraX + ML Kit + Open Food Facts + Review + save. Not found -> type label values (per 100 g) until step 4 adds label photos. Note field is appended to the name ("Food · note") so it shows in Google Health.
-4. Camera + Upload with Label mode: Gemini label reading into the same Review screen.
-5. Meal mode (camera + upload) with India prompt and component list.
-6. History: Room, log again, delete (also from Health Connect).
-7. Polish: icons, empty states, error states, signed release APK.
+## 7. Health Connect
 
-## 8. Tests
+- Write one `NutritionRecord` per item (not one per meal): Google Health lists items by name, and edits stay simple.
+- `name` = "Food · note" (max 100 chars), `mealType`, 1-minute interval at meal time, all non-null nutrients.
+- `clientRecordId` = our history ID, so edit = upsert and delete = delete.
+- Samsung Health: Samsung Health > Settings > Health Connect, allow Nutrition read. (Still to confirm on device.)
 
-- Unit: OFF mapper (per-100 g and per-serving cases, missing fields), portion scaling, energy check, Gemini JSON parsing (good, partial, malformed).
-- Instrumented (manual on device): permission flow, one write per source, visible in both health apps.
+## 8. Design
+
+- Material 3 dynamic colour, light and dark. No gradients, no emoji icons. Numbers in tabular figures.
+- Home: three large choices (Barcode / Camera / Upload), then Recent and Favourites.
+- One primary action per screen. Every error says what happened and what to do next.
+- Amber = estimated or unverified. Never show an estimate in the same style as a measured value.
+
+## 9. Build order (each step ends in a working APK)
+
+1. ~~Skeleton, CI~~ done.
+2. ~~Health Connect write; confirmed in Google Health~~ done. Samsung Health still to confirm.
+3. ~~Barcode + Open Food Facts + Review + save~~ done. Add: "What and how much" field on the scan screen.
+4. **Databank**: build pipeline + `food.db` + search screen + portions (units, My measures). Log any food by name.
+5. **Label photo** (Camera + Upload): Gemini transcription + validation. Replaces typing label values.
+6. **Meal photo** (Camera + Upload): recognise -> match -> compute, per section 3. Golden set gate.
+7. History, Recent, Favourites, edit/delete.
+8. Polish: empty states, error states, icon, release signing.
+
+Deferred until real use shows a need: recipe builder, offline queue, CoFID.
+
+## 10. Tests
+
+- Unit: OFF parser, portion scaling, unit conversion, energy check, barcode check digit, Gemini JSON parsing
+  (good, partial, malformed, invented ID rejected), databank validation rules, INDB recompute (poori fixture).
+- Pipeline: REPORT.md diff reviewed on every databank change.
+- Device: permission flow, one write per source, visible in Google Health (and Samsung Health).
