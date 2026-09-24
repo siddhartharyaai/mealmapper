@@ -44,4 +44,17 @@ class MealSlotTest {
         val morning = LocalDateTime.of(2026, 9, 24, 9, 0)
         assertEquals(morning, eatenAtFor(MealSlot.DINNER, morning))
     }
+
+    @Test fun yesterdaysDinnerLandsOnYesterday() {
+        val morning = LocalDateTime.of(2026, 9, 25, 9, 0)
+        assertEquals(
+            LocalDateTime.of(2026, 9, 24, 20, 30),
+            eatenAtFor(MealSlot.DINNER, java.time.LocalDate.of(2026, 9, 24), morning),
+        )
+    }
+
+    @Test fun todayStillUsesNow() {
+        val t = LocalDateTime.of(2026, 9, 25, 13, 5)
+        assertEquals(t, eatenAtFor(MealSlot.LUNCH, t.toLocalDate(), t))
+    }
 }

@@ -1,4 +1,4 @@
-# Meal Mapper: full test (version 1.2.0)
+# Meal Mapper: full test (version 1.3.0)
 
 About 60 minutes, in one sitting, plus the two-week meal check in Part H. Do the parts in order.
 Write down each FAIL with a screenshot. Pass = every step marked PASS, or the fail is explained in the notes.
@@ -17,7 +17,11 @@ Before you start: install the new APK over the old one (your settings, key and h
   already set from the clock ("Set from the time"): 5-12 breakfast, 12-4 lunch, 4-7 snack (evening), 7 onwards dinner.
 - Type or say "for lunch", "nashta", "shaam ki chai" or "raat ka khana": the chip moves ("From what you said").
 - Tap a chip yourself: it stays, whatever you type after.
-- Save lunch at 9 pm: Google Health shows it at 1:30 pm under Lunch. PASS if all four behave as described.
+- Save lunch at 9 pm: Google Health shows it at 1:30 pm under Lunch.
+- Forgot yesterday: on any logging screen tap Yesterday (or 📅 Other day, up to 30 days back), pick Dinner, log it.
+  The confirmation says "· Thu 24 Sep"; History shows it under that day; Google Health shows it on that day at 8:30 pm,
+  and that day's calories and macros include it; today's ticker does not change.
+PASS if all five behave as described.
 
 ## B. Packaged food (10 min)
 5. Scan barcode: a pack Open Food Facts knows. PASS if Review shows the nutrition facts first,

@@ -20,6 +20,7 @@ import androidx.navigation.navArgument
 import app.mealmapper.ui.history.HistoryScreen
 import app.mealmapper.ui.history.HistoryViewModel
 import app.mealmapper.domain.MealSlot
+import java.time.LocalDate
 import app.mealmapper.ui.home.HomeScreen
 import app.mealmapper.ui.home.HomeViewModel
 import app.mealmapper.ui.photo.PhotoKind
@@ -43,7 +44,7 @@ private object Routes {
     const val HISTORY = "history"
     const val SEARCH = "search"
     const val PHOTO = "photo?mode={mode}&kind={kind}&code={code}&name={name}"
-    const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}&place={place}&slot={slot}"
+    const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}&place={place}&slot={slot}&day={day}"
 
     fun photo(mode: PhotoMode, kind: PhotoKind, code: String? = null, name: String? = null) =
         "photo?mode=${mode.name}&kind=${kind.name}&code=${enc(code)}&name=${enc(name)}"
@@ -51,14 +52,14 @@ private object Routes {
     /** Several photos travel as one argument, one Uri per line. */
     fun review(
         kind: String, code: String? = null, note: String = "", photos: List<Uri> = emptyList(), name: String? = null,
-        place: String = "", slot: MealSlot? = null,
+        place: String = "", slot: MealSlot? = null, day: LocalDate? = null,
     ) = "review?kind=$kind&code=${enc(code)}&note=${enc(note)}&photo=${enc(photos.joinToString("\n"))}&name=${enc(name)}" +
-        "&place=$place&slot=${slot?.name.orEmpty()}"
+        "&place=$place&slot=${slot?.name.orEmpty()}&day=${day?.toString().orEmpty()}"
 
     private fun enc(v: String?) = Uri.encode(v.orEmpty())
 
     val photoArgs = listOf("mode", "kind", "code", "name").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
-    val reviewArgs = listOf("kind", "code", "note", "photo", "name", "place", "slot").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
+    val reviewArgs = listOf("kind", "code", "note", "photo", "name", "place", "slot", "day").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
 }
 
 private fun NavBackStackEntry.arg(name: String): String? = arguments?.getString(name)?.takeIf { it.isNotEmpty() }
@@ -98,7 +99,7 @@ class MainActivity : ComponentActivity() {
                         SearchScreen(
                             db = container.foodDb,
                             onBack = { nav.popBackStack() },
-                            onPick = { id, note, slot -> nav.navigate(Routes.review("food", code = id, note = note, slot = slot)) },
+                            onPick = { id, note, slot, day -> nav.navigate(Routes.review("food", code = id, note = note, slot = slot, day = day)) },
                         )
                     }
                     composable(Routes.HISTORY) {
@@ -119,8 +120,8 @@ class MainActivity : ComponentActivity() {
                     composable(Routes.SCAN) {
                         ScanScreen(
                             onBack = { nav.popBackStack() },
-                            onBarcode = { code, note, slot ->
-                                nav.navigate(Routes.review("barcode", code = code, note = note, slot = slot)) { launchSingleTop = true }
+                            onBarcode = { code, note, slot, day ->
+                                nav.navigate(Routes.review("barcode", code = code, note = note, slot = slot, day = day)) { launchSingleTop = true }
                             },
                         )
                     }
@@ -133,7 +134,7 @@ class MainActivity : ComponentActivity() {
                             hasAiKey = hasAiKey,
                             onBack = { nav.popBackStack() },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
-                            onAnalyse = { kind, photos, note, restaurant, restaurantName, slot ->
+                            onAnalyse = { kind, photos, note, restaurant, restaurantName, slot, day ->
                                 val reviewKind = when (kind) {
                                     PhotoKind.MEAL -> "meal"
                                     PhotoKind.MENU -> "menu"
@@ -147,7 +148,7 @@ class MainActivity : ComponentActivity() {
                                     kind == PhotoKind.MEAL -> null
                                     else -> name
                                 }
-                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photos = photos, name = reviewName, place = place, slot = slot))
+                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photos = photos, name = reviewName, place = place, slot = slot, day = day))
                             },
                         )
                     }
@@ -169,6 +170,7 @@ class MainActivity : ComponentActivity() {
                             factory = ReviewViewModel.factory(
                                 request,
                                 entry.arg("slot")?.let { runCatching { MealSlot.valueOf(it) }.getOrNull() },
+                                entry.arg("day")?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
                                 applicationContext,
                                 container,
                             ),

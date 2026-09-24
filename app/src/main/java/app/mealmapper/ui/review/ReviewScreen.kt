@@ -161,7 +161,7 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
     val unit = form.product.basis.unit
     val portion = form.portion
 
-    MealPicker(form.slot, SlotReason.CHOSEN, vm::setSlot)
+    MealPicker(form.slot, SlotReason.CHOSEN, vm::setSlot, form.day, vm::setDay)
 
     OutlinedTextField(
         value = form.name,
@@ -388,7 +388,7 @@ private fun Double.fmt1(): String = "%.1f".format(this).removeSuffix(".0")
 private fun MealReview(form: MealForm, vm: ReviewViewModel) {
     val total = form.total
     val range = form.range
-    MealPicker(form.slot, SlotReason.CHOSEN, vm::setMealSlot)
+    MealPicker(form.slot, SlotReason.CHOSEN, vm::setMealSlot, form.day, vm::setMealDay)
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),

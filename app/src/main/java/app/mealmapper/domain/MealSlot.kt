@@ -55,5 +55,15 @@ fun eatenAtFor(slot: MealSlot, now: LocalDateTime): LocalDateTime {
     return if (usual.isBefore(now)) usual else now
 }
 
+/**
+ * When to record a meal logged for [day]: today follows [eatenAtFor]; an earlier day (forgot to log yesterday)
+ * uses that meal's usual time on that date, so Google Health adds it to the right day's totals.
+ */
+fun eatenAtFor(slot: MealSlot, day: LocalDate, now: LocalDateTime): LocalDateTime =
+    if (!day.isBefore(now.toLocalDate())) eatenAtFor(slot, now) else LocalDateTime.of(day, slot.typical)
+
+/** How far back a meal can be logged. Matches History (30 days). */
+const val MAX_DAYS_BACK = 30L
+
 /** The usual time of [slot] on [day], used when a History edit moves an entry to another meal. */
 fun usualTime(slot: MealSlot, day: LocalDate): LocalDateTime = LocalDateTime.of(day, slot.typical)

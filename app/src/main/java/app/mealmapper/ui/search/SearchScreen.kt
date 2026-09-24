@@ -37,16 +37,18 @@ import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.mealSlotFor
 import app.mealmapper.ui.common.MealPicker
 import app.mealmapper.ui.common.SlotReason
+import java.time.LocalDate
 import java.time.LocalTime
 import app.mealmapper.ui.common.kcal
 import app.mealmapper.ui.theme.tabular
 
 /** Log any food by name from the offline databank. Hinglish works: "daal", "sabji", "dahi". */
 @Composable
-fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: String, slot: MealSlot) -> Unit) {
+fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: String, slot: MealSlot, day: LocalDate) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var slot by rememberSaveable { mutableStateOf(mealSlotFor(LocalTime.now())) }
     var slotReason by rememberSaveable { mutableStateOf(SlotReason.TIME) }
+    var day by rememberSaveable { mutableStateOf(LocalDate.now()) }
     var foods by remember { mutableStateOf<List<DbFood>?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { foods = runCatching { db.all() }.getOrElse { emptyList() } }
@@ -58,7 +60,7 @@ fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: Stri
                 TextButton(onClick = onBack) { Text("Back") }
                 Text("Search foods", style = MaterialTheme.typography.titleLarge)
             }
-            MealPicker(slot, slotReason) { slot = it; slotReason = SlotReason.CHOSEN }
+            MealPicker(slot, slotReason, { slot = it; slotReason = SlotReason.CHOSEN }, day, { day = it })
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it.take(60) },
@@ -85,7 +87,7 @@ fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: Stri
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(results, key = { it.id }) { food ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { onPick(food.id, "", slot) }.padding(vertical = 10.dp),
+                        Modifier.fillMaxWidth().clickable { onPick(food.id, "", slot, day) }.padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {

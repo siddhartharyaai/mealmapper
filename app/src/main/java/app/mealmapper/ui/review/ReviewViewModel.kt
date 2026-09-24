@@ -27,6 +27,7 @@ import app.mealmapper.domain.ProductSource
 import app.mealmapper.domain.mealSlotFor
 import app.mealmapper.domain.mealSlotIn
 import app.mealmapper.domain.eatenAtFor
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import app.mealmapper.domain.parsePortion
@@ -99,6 +100,7 @@ data class MealRow(
 data class MealForm(
     val rows: List<MealRow>,
     val slot: MealSlot,
+    val day: LocalDate = LocalDate.now(),
     val note: String,
     val restaurant: Boolean,
     val saving: Boolean = false,
@@ -131,6 +133,8 @@ data class ReviewForm(
     val name: String,
     val amountText: String,
     val slot: MealSlot,
+    /** The day the food was eaten (today, or an earlier day the user forgot to log). */
+    val day: LocalDate = LocalDate.now(),
     val note: String = "",
     /** Label values per 100 g/ml as text, so the user can correct them field by field. */
     val per100Text: Map<NutrientField, String>,
@@ -195,6 +199,8 @@ class ReviewViewModel(
     private val request: ReviewRequest,
     /** The meal chosen on the capture screen, or null to work it out here. */
     private val initialSlot: MealSlot?,
+    /** The day chosen on the capture screen; null means today. */
+    private val initialDay: LocalDate?,
     private val app: Context,
     private val c: AppContainer,
 ) : ViewModel() {
@@ -217,9 +223,13 @@ class ReviewViewModel(
     /** Capture screen's choice, else a meal named in the note, else the time of day. */
     private fun startSlot(): MealSlot = initialSlot ?: mealSlotIn(request.note) ?: mealSlotFor(LocalTime.now())
 
-    /** Late logging: lunch saved at 9 pm is recorded at lunchtime today. */
-    private fun eatenAt(slot: MealSlot): Instant =
-        eatenAtFor(slot, LocalDateTime.now()).atZone(ZoneId.systemDefault()).toInstant()
+    /** Late logging: lunch saved at 9 pm is recorded at lunchtime; yesterday's dinner at 8:30 pm yesterday. */
+    private fun eatenAt(slot: MealSlot, day: LocalDate): Instant =
+        eatenAtFor(slot, day, LocalDateTime.now()).atZone(ZoneId.systemDefault()).toInstant()
+
+    /** " · Mon 22 Sep" when the food was logged for another day, so the confirmation says where it went. */
+    private fun dayNote(day: LocalDate): String =
+        if (day == LocalDate.now()) "" else " · " + day.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
 
     fun start() {
         viewModelScope.launch {
@@ -321,6 +331,7 @@ class ReviewViewModel(
                     )
                 },
                 slot = startSlot(),
+                day = initialDay ?: LocalDate.now(),
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 restaurant = restaurant,
             ),
@@ -350,6 +361,7 @@ class ReviewViewModel(
     fun setRowGrams(i: Int, v: String) = editRow(i) { it.copy(gramsText = v.filter { c -> c.isDigit() || c == '.' }.take(6)) }
     fun toggleRow(i: Int) = editRow(i) { it.copy(include = !it.include) }
     fun setMealSlot(v: MealSlot) = editMeal { it.copy(slot = v) }
+    fun setMealDay(v: LocalDate) = editMeal { it.copy(day = v) }
     fun toggleRowDb(i: Int) = editRow(i) { it.copy(useDb = !it.useDb) }
     fun setRowPieces(i: Int, count: Double, size: Int) = editRow(i) { row ->
         val p = row.pieces ?: return@editRow row
@@ -380,7 +392,7 @@ class ReviewViewModel(
     fun saveMeal() {
         val form = (_state.value as? ReviewState.Meal)?.form ?: return
         if (!form.canSave) return
-        val now = eatenAt(form.slot)
+        val now = eatenAt(form.slot, form.day)
         val entries = form.rows.filter { it.include }.mapIndexed { i, row ->
             val tag = when {
                 row.published -> "published"
@@ -410,7 +422,7 @@ class ReviewViewModel(
             }
                 .onSuccess {
                     val kcal = entries.sumOf { it.nutrients.energyKcal }
-                    _state.value = ReviewState.Saved("Saved meal: ${entries.size} items, ${Math.round(kcal)} kcal")
+                    _state.value = ReviewState.Saved("Saved meal: ${entries.size} items, ${Math.round(kcal)} kcal${dayNote(form.day)}")
                 }
                 .onFailure { e ->
                     // Keep only the items not yet written, so a retry does not log anything twice.
@@ -462,6 +474,7 @@ class ReviewViewModel(
                 amountText = parsed?.amount?.fmt().orEmpty(),
                 amountFromNote = parsed?.explanation,
                 slot = startSlot(),
+                day = initialDay ?: LocalDate.now(),
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 per100Text = per100Text(product.per100),
                 problems = problems,
@@ -481,6 +494,7 @@ class ReviewViewModel(
                 name = knownName.orEmpty(),
                 amountText = "",
                 slot = startSlot(),
+                day = initialDay ?: LocalDate.now(),
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 per100Text = NutrientField.entries.associateWith { "" },
                 editingLabel = true,
@@ -507,6 +521,7 @@ class ReviewViewModel(
     fun setAmount(v: String) =
         edit { it.copy(amountText = v.filter { c -> c.isDigit() || c == '.' }.take(6), amountFromNote = null) }
     fun setSlot(v: MealSlot) = edit { it.copy(slot = v) }
+    fun setDay(v: LocalDate) = edit { it.copy(day = v) }
     fun setNote(v: String) = edit { it.copy(note = v.take(ReviewForm.MAX_NOTE)) }
     fun toggleEditLabel() = edit { it.copy(editingLabel = !it.editingLabel) }
     fun setPer100(field: NutrientField, v: String) =
@@ -533,7 +548,7 @@ class ReviewViewModel(
             clientId = UUID.randomUUID().toString(),
             name = if (note.isEmpty()) baseName else "$baseName · $note",
             slot = form.slot,
-            eatenAt = eatenAt(form.slot),
+            eatenAt = eatenAt(form.slot, form.day),
             nutrients = portion,
         )
         _state.value = ReviewState.Ready(form.copy(saving = true))
@@ -543,7 +558,7 @@ class ReviewViewModel(
                     // Remember the confirmed values for this barcode: next scan is instant and identical.
                     c.productCache.put(form.product.copy(name = baseName, brand = null, per100 = form.per100))
                     c.log.add(LoggedItem.of(entry, form.amount!!, form.product.basis.unit, form.per100, estimate = false))
-                    _state.value = ReviewState.Saved("Saved: $baseName, ${Math.round(portion.energyKcal)} kcal")
+                    _state.value = ReviewState.Saved("Saved: $baseName, ${Math.round(portion.energyKcal)} kcal${dayNote(form.day)}")
                 }
                 .onFailure { e ->
                     _state.value = ReviewState.Ready(
@@ -554,7 +569,7 @@ class ReviewViewModel(
     }
 
     companion object {
-        fun factory(request: ReviewRequest, slot: MealSlot?, app: Context, container: AppContainer) =
-            viewModelFactory { initializer { ReviewViewModel(request, slot, app.applicationContext, container) } }
+        fun factory(request: ReviewRequest, slot: MealSlot?, day: LocalDate?, app: Context, container: AppContainer) =
+            viewModelFactory { initializer { ReviewViewModel(request, slot, day, app.applicationContext, container) } }
     }
 }
