@@ -12,7 +12,7 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /** Raw reply from generateContent: the model's text plus the web pages Google Search grounded it on. */
-data class GeminiReply(val text: String, val groundedSites: List<String>)
+data class GeminiReply(val text: String, val groundedSites: List<String>, val model: String = "")
 
 /** Nutrition facts as the model reported them, before the app's own checks. */
 data class AiNutrition(
@@ -53,6 +53,11 @@ object GeminiParsing {
         }.distinct()
         return GeminiReply(text, sites)
     }
+
+    /** The "message" field of a Gemini error body, if any. */
+    fun errorMessage(body: String): String? = runCatching {
+        ((json.parseToJsonElement(body).jsonObject["error"] as? JsonObject)?.get("message") as? JsonPrimitive)?.content
+    }.getOrNull()?.lines()?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun blockReason(root: JsonObject): String? =
         (root["promptFeedback"] as? JsonObject)?.str("blockReason")?.let { "Gemini refused the request ($it)." }

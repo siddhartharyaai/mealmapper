@@ -91,4 +91,14 @@ class GeminiParsingTest {
     fun noJsonThrows() {
         GeminiParsing.nutrition("Sorry, I could not find it.")
     }
+
+    @Test fun errorMessageFromGoogleBody() {
+        val body = """{"error":{"code":429,"message":"You exceeded your current quota. Quota: generate_content_free_tier_requests, limit: 0, model: gemini-3.5-flash\nPlease retry","status":"RESOURCE_EXHAUSTED"}}"""
+        assertEquals(
+            "You exceeded your current quota. Quota: generate_content_free_tier_requests, limit: 0, model: gemini-3.5-flash",
+            GeminiParsing.errorMessage(body),
+        )
+    }
+
+    @Test fun errorMessageFromGarbage() = assertNull(GeminiParsing.errorMessage("<html>"))
 }

@@ -64,46 +64,56 @@ class GeminiClient(private val settings: GeminiSettings) {
                 if (jsonResponse) put("responseMimeType", "application/json")
             }
         }
-        val request = Request.Builder()
-            .url("$BASE/models/${settings.model}:generateContent")
-            .header("x-goog-api-key", key)
-            .post(body.toString().toRequestBody(JSON))
-            .build()
-        try {
-            http.newCall(request).execute().use { response ->
-                val text = response.body.string()
-                if (!response.isSuccessful) throw GeminiException(errorMessage(response.code, text))
-                GeminiParsing.reply(text)
+        // Try the chosen model, then the fallbacks. A 429 on a free key usually means that model has
+        // no free quota (limit 0), not that the user made too many requests.
+        val models = (listOf(settings.model) + FALLBACK_MODELS).distinct()
+        var lastError: GeminiException? = null
+        for (model in models) {
+            val request = Request.Builder()
+                .url("$BASE/models/$model:generateContent")
+                .header("x-goog-api-key", key)
+                .post(body.toString().toRequestBody(JSON))
+                .build()
+            try {
+                http.newCall(request).execute().use { response ->
+                    val text = response.body.string()
+                    if (response.isSuccessful) return@withContext GeminiParsing.reply(text).copy(model = model)
+                    lastError = GeminiException(errorMessage(response.code, text, model))
+                    if (response.code != 429 && response.code != 404) throw lastError!!
+                }
+            } catch (e: IOException) {
+                throw GeminiException("No connection to Gemini. Check your internet and try again.")
             }
-        } catch (e: IOException) {
-            throw GeminiException("No connection to Gemini. Check your internet and try again.")
         }
+        throw lastError ?: GeminiException("Gemini did not answer.")
     }
 
-    /** Cheap call that proves the key and model work. Used by the Settings "Test" button. */
-    suspend fun test(): String = withContext(Dispatchers.IO) {
-        val key = settings.apiKey() ?: throw GeminiException("No key saved.")
-        val request = Request.Builder().url("$BASE/models/${settings.model}").header("x-goog-api-key", key).get().build()
-        try {
-            http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw GeminiException(errorMessage(response.code, response.body.string()))
-                "Key works. Model: ${settings.model}"
-            }
-        } catch (e: IOException) {
-            throw GeminiException("No connection to Gemini. Check your internet and try again.")
-        }
+    /**
+     * A real (tiny) request, so quota problems show up here and not in the middle of a lookup.
+     * Uses web search too, because that is what product lookups need.
+     */
+    suspend fun test(): String {
+        val reply = generate("Reply with the single word OK.", webSearch = true)
+        return "Key works with web search. Model: ${reply.model}"
     }
 
-    private fun errorMessage(code: Int, body: String): String = when (code) {
-        400 -> if (body.contains("API key", ignoreCase = true)) "Gemini says the API key is not valid." else "Gemini rejected the request (400)."
-        401, 403 -> "Gemini says the API key is not allowed. Check it in Google AI Studio."
-        404 -> "Model \"${settings.model}\" not found. Change the model in Settings."
-        429 -> "Gemini's free limit is used up for now. Try again in a minute."
-        else -> "Gemini error $code. Try again."
+    /** Google's own reason, shortened, so the user (and developer) can see what actually failed. */
+    private fun errorMessage(code: Int, body: String, model: String): String {
+        val google = GeminiParsing.errorMessage(body)?.take(220)
+        val plain = when (code) {
+            400 -> if (body.contains("API key", ignoreCase = true)) "The API key is not valid." else "Gemini rejected the request."
+            401, 403 -> "The API key is not allowed. Check it in Google AI Studio."
+            404 -> "Model \"$model\" is not available to this key."
+            429 -> "No quota left for \"$model\" on this key (free keys have 0 for some models)."
+            else -> "Gemini error $code."
+        }
+        return if (google != null) "$plain\nGoogle says: $google" else plain
     }
 
     private companion object {
         const val BASE = "https://generativelanguage.googleapis.com/v1beta"
+        /** Flash-Lite has the largest free daily quota (about 500/day in September 2026). */
+        val FALLBACK_MODELS = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite")
         val JSON = "application/json".toMediaType()
     }
 }

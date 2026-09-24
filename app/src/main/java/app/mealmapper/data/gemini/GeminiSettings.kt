@@ -68,8 +68,11 @@ class GeminiSettings(context: Context) {
     }
 
     companion object {
-        /** GA model as of September 2026. Change in Settings if Google retires it. */
-        const val DEFAULT_MODEL = "gemini-3.5-flash"
+        /**
+         * Flash-Lite: GA, and the only 3.x family with a usable free quota in September 2026
+         * (gemini-3.5-flash fails on free keys with 429 "limit 0"). With billing on, gemini-3.5-flash is better.
+         */
+        const val DEFAULT_MODEL = "gemini-3.1-flash-lite"
         private const val KEYSTORE = "AndroidKeyStore"
         private const val ALIAS = "mealmapper_gemini"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
