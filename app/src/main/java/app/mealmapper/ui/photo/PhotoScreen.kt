@@ -53,13 +53,15 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-enum class PhotoMode { CAMERA, UPLOAD }
+/** TYPE: no photo, the user describes the meal in words. */
+enum class PhotoMode { CAMERA, UPLOAD, TYPE }
 
 /** What the photo shows. */
 enum class PhotoKind(val label: String, val hint: String) {
     MEAL("Meal", "A plate, thali or drink. Gemini estimates each item; you can fix the grams."),
     LABEL("Nutrition label", "The table on the back of the pack. Most accurate."),
     PACK("Pack front", "Finds the product's nutrition online."),
+    MENU("Menu", "Top 3 eggetarian picks for your calories left today."),
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -70,12 +72,14 @@ fun PhotoScreen(
     hasAiKey: Boolean,
     onBack: () -> Unit,
     onSettings: () -> Unit,
-    onAnalyse: (kind: PhotoKind, photo: Uri?, note: String, restaurant: Boolean) -> Unit,
+    onAnalyse: (kind: PhotoKind, photo: Uri?, note: String, restaurant: Boolean, restaurantName: String) -> Unit,
 ) {
     val context = LocalContext.current
-    var kind by rememberSaveable { mutableStateOf(initialKind) }
+    var kind by rememberSaveable { mutableStateOf(if (mode == PhotoMode.TYPE) PhotoKind.MEAL else initialKind) }
+    val typing = mode == PhotoMode.TYPE
     var note by rememberSaveable { mutableStateOf("") }
     var restaurant by rememberSaveable { mutableStateOf(false) }
+    var restaurantName by rememberSaveable { mutableStateOf("") }
     var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
     // Saveable: the camera app can push Meal Mapper out of memory while the photo is being taken.
     var pending by rememberSaveable { mutableStateOf<Uri?>(null) }
@@ -103,6 +107,7 @@ fun PhotoScreen(
         error = null
         when (mode) {
             PhotoMode.UPLOAD -> pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            PhotoMode.TYPE -> Unit
             PhotoMode.CAMERA ->
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                     launchCamera()
@@ -134,12 +139,19 @@ fun PhotoScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack) { Text("Back") }
-                Text(if (mode == PhotoMode.CAMERA) "Take a photo" else "Upload a photo", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    when (mode) {
+                        PhotoMode.CAMERA -> "Take a photo"
+                        PhotoMode.UPLOAD -> "Upload a photo"
+                        PhotoMode.TYPE -> "Type what you ate"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                )
             }
 
             if (!hasAiKey) {
                 Text(
-                    "Photos are read by Gemini. Add your Gemini API key in Settings first.",
+                    "This uses Gemini. Add your Gemini API key in Settings first.",
                     color = MaterialTheme.colorScheme.error,
                 )
                 OutlinedButton(onClick = onSettings) { Text("Open Settings") }
@@ -161,20 +173,44 @@ fun PhotoScreen(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
 
-            Text("The photo shows", style = MaterialTheme.typography.titleMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PhotoKind.entries.forEach { k ->
-                    FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) })
+            if (!typing) {
+                Text("The photo shows", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PhotoKind.entries.forEach { k ->
+                        FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) })
+                    }
                 }
+                Text(kind.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(kind.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (kind == PhotoKind.MEAL) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !restaurant, onClick = { restaurant = false }, label = { Text("Home food") })
                     FilterChip(selected = restaurant, onClick = { restaurant = true }, label = { Text("Restaurant / order-in") })
                 }
             }
+            if ((kind == PhotoKind.MEAL && restaurant) || kind == PhotoKind.MENU) {
+                OutlinedTextField(
+                    value = restaurantName,
+                    onValueChange = { restaurantName = it.take(60) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Restaurant name (optional)") },
+                    placeholder = { Text("McDonald's, Theobroma, Swati Snacks…") },
+                    supportingText = {
+                        Text(if (kind == PhotoKind.MENU) "Helps with portion sizes." else "Chains' published values are used when found.")
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                )
+            }
 
+            if (typing) {
+                Button(
+                    onClick = { onAnalyse(PhotoKind.MEAL, null, note.trim(), restaurant, restaurantName.trim()) },
+                    enabled = hasAiKey && note.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Estimate") }
+                return@Column
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -190,6 +226,7 @@ fun PhotoScreen(
                     Text(
                         when (kind) {
                             PhotoKind.MEAL -> "Shoot from above, whole plate in view."
+                            PhotoKind.MENU -> "One menu page, flat, text readable."
                             PhotoKind.LABEL -> "Hold the label flat, fill the frame, good light."
                             PhotoKind.PACK -> "Show the brand, variant and pack size."
                         },
@@ -207,20 +244,21 @@ fun PhotoScreen(
                 }
                 if (kind == PhotoKind.MEAL) {
                     OutlinedButton(
-                        onClick = { onAnalyse(kind, null, note.trim(), restaurant) },
+                        onClick = { onAnalyse(kind, null, note.trim(), restaurant, restaurantName.trim()) },
                         enabled = hasAiKey && note.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("No photo: estimate from my words") }
                 }
             } else {
                 Button(
-                    onClick = { onAnalyse(kind, current, note.trim(), restaurant) },
+                    onClick = { onAnalyse(kind, current, note.trim(), restaurant, restaurantName.trim()) },
                     enabled = hasAiKey && preview != null,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         when (kind) {
                             PhotoKind.MEAL -> "Estimate this meal"
+                            PhotoKind.MENU -> "Suggest what to order"
                             PhotoKind.LABEL -> "Read the label"
                             PhotoKind.PACK -> "Find it online"
                         },

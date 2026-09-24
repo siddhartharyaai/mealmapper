@@ -41,6 +41,9 @@ Pass: all five work; ticker matches Google Health.
 
 ## Phase 2: Small
 
+Shipped in 0.8.0: History (30 days, by day and meal, edit amount/name/meal, delete; Health Connect updated by the
+same client id), stars, "Log again" on Home (favourites + 5 recent, one tap, Undo). Meal time is the meal chip.
+
 Build
 - History: last 30 days, grouped by day and meal. Tap to edit amount, name or meal; delete. Changes also
   update or remove the entry in Health Connect.
@@ -119,6 +122,9 @@ Fail: we add one question per dish type for the cook (e.g. spoons of ghee in dal
 
 ## Phase 6: Medium
 
+Shipped in 0.8.0 (first cut): restaurant name on meal photos; Google Search for the chain's published values, which
+replace the estimate per dish ("published" in the entry name). Others stay estimates with restaurant oil levels.
+
 Build
 - Restaurant mode: restaurant name (optional) + photo. Chains with published nutrition use those values.
   Others: Gemini web search for the menu and dish description, then the databank's rich/restaurant variant.
@@ -129,6 +135,8 @@ Test (over a week)
 Pass: chain item matches the chain's published value; others show sources and a sensible range.
 
 ## Phase 7: Medium
+
+Shipped in 0.8.0: "Scan a menu" -> top 3 eggetarian picks for calories left, with reasons; "I ordered this" logs it.
 
 Build
 - Menu scanner: photo of a menu -> dishes estimated -> top 3 picks that fit calories left today,

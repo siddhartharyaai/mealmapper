@@ -66,14 +66,54 @@ class NutritionLookup(private val gemini: GeminiClient) {
     }
 
     /** Estimates a plate of food from a photo and/or the user's words. Always labelled as an estimate. */
-    suspend fun meal(photo: ByteArray?, note: String, restaurant: Boolean): List<AiParsing.MealItem> {
-        val prompt = MEAL_PROMPT
-            .replace("{PLACE}", if (restaurant) RESTAURANT else HOME)
-            .replace("{NOTE}", note.ifBlank { "none" })
-        val reply = gemini.vision(prompt, listOfNotNull(photo))
-        val items = AiParsing.meal(reply.text)
+    suspend fun meal(photo: ByteArray?, note: String, restaurant: Boolean, restaurantName: String?): List<AiParsing.MealItem> {
+        val place = when {
+            restaurantName != null -> "$RESTAURANT Restaurant: $restaurantName."
+            restaurant -> RESTAURANT
+            else -> HOME
+        }
+        val prompt = MEAL_PROMPT.replace("{PLACE}", place).replace("{NOTE}", note.ifBlank { "none" })
+        val items = AiParsing.meal(gemini.vision(prompt, listOfNotNull(photo)).text)
         if (items.isEmpty()) throw AiException("No food recognised. Try a clearer photo, or type what you ate.")
-        return items
+        return if (restaurantName != null) published(restaurantName, items) else items
+    }
+
+    /**
+     * Chains (McDonald's India, Domino's, Subway, Starbucks…) publish nutrition per item. Where Google Search
+     * finds a published value for a dish, it replaces the estimate. A failed search keeps the estimates.
+     */
+    private suspend fun published(restaurant: String, items: List<AiParsing.MealItem>): List<AiParsing.MealItem> {
+        val dishes = items.joinToString("\n") { "- ${it.name} (about ${it.grams.toInt()} g)" }
+        val research = runCatching {
+            gemini.webSearch(PUBLISHED_PROMPT.replace("{RESTAURANT}", restaurant).replace("{DISHES}", dishes))
+        }.getOrNull() ?: return items
+        if (research.text.contains("NOT_FOUND") && research.text.length < 400) return items
+        val sites = research.sites.ifEmpty { AiParsing.sitesInText(research.text) }
+        if (sites.isEmpty()) return items
+        val found = runCatching {
+            AiParsing.meal(gemini.text(PUBLISHED_EXTRACT.replace("{REPORT}", research.text).replace("{DISHES}", dishes)).text)
+        }.getOrElse { return items }
+        return items.map { item ->
+            val match = found.firstOrNull { it.name.equals(item.name, ignoreCase = true) } ?: return@map item
+            match.copy(
+                name = item.name,
+                lowKcal = null,
+                highKcal = null,
+                assumption = "Published by $restaurant (${sites.first()}): ${match.grams.toInt()} g serving",
+                published = true,
+            )
+        }
+    }
+
+    /** Photo of a menu: the 3 best dishes for the calories left today, eggetarian. Estimates, with reasons. */
+    suspend fun menu(photo: ByteArray, note: String, kcalLeft: Int?, restaurantName: String?): List<AiParsing.MealItem> {
+        val prompt = MENU_PROMPT
+            .replace("{LEFT}", kcalLeft?.let { "$it kcal left today" } ?: "no daily cap set; prefer high protein and moderate calories")
+            .replace("{RESTAURANT}", restaurantName ?: "unknown")
+            .replace("{NOTE}", note.ifBlank { "none" })
+        val picks = AiParsing.meal(gemini.vision(prompt, listOf(photo)).text)
+        if (picks.isEmpty()) throw AiException("Could not read dishes from this photo. Take the menu closer, in good light.")
+        return picks
     }
 
     /** "Britannia Nutri Choice Digestive, 125 g" from a pack-front photo, or null if unreadable. */
@@ -154,6 +194,45 @@ $SCHEMA"""
 
         const val HOME = "Home-cooked food from a Mumbai household kitchen, made by a home cook. Moderate oil; phulka/roti usually without ghee unless visible."
         const val RESTAURANT = "Restaurant or takeaway food in Mumbai. Restaurants use more oil, butter, cream and larger portions than home cooking."
+
+        const val PUBLISHED_PROMPT = """Find the nutrition values that the restaurant "{RESTAURANT}" (India) publishes for these dishes:
+{DISHES}
+
+Search the web: the restaurant's own India website or app nutrition pages first (chains such as McDonald's India,
+Domino's India, KFC India, Subway India, Starbucks India, Burger King India publish them), then reliable pages that copy them.
+Write a short plain-text report: for each dish found, the exact item name, serving size in g, kcal, protein, carbs and fat,
+and the web address. Copy numbers only from pages; never estimate.
+If the restaurant publishes nothing for any of these dishes, reply with only: NOT_FOUND"""
+
+        const val PUBLISHED_EXTRACT = """Below is a research report about published restaurant nutrition values.
+Dishes we need:
+{DISHES}
+
+Use ONLY numbers written in the report. For each dish above that the report gives values for, output one item,
+with "name" exactly as written in the dish list above, "grams" = the published serving size in g, and the published
+values for that serving. Leave out dishes the report has no values for.
+
+Report:
+{REPORT}
+
+Reply with ONLY this JSON:
+{"items": [{"name": "...", "grams": n, "kcal": n, "protein_g": n, "carbs_g": n, "fat_g": n}]}"""
+
+        const val MENU_PROMPT = """The photo shows a restaurant menu in India. Restaurant: {RESTAURANT}.
+The eater: adult in Mumbai, EGGETARIAN (vegetarian plus eggs; no meat, chicken, fish or seafood). {LEFT}.
+Eater's note: {NOTE}
+
+Pick the 3 best dishes ON THIS MENU for the eater right now:
+- Only eggetarian dishes that are printed on the menu.
+- Fit within the calories left (a normal restaurant portion), favour protein and less oil, butter, cream and deep frying.
+- Estimate each dish's restaurant portion with typical Indian restaurant values (IFCT/NIN-based), including cooking fat.
+- kcal must agree with macros (protein x4 + carbs x4 + fat x9, within 10%). Give a realistic kcal_low and kcal_high.
+- "assumption": one short line on why it is a good pick and what to ask for (e.g. "paneer tikka: 25 g protein; ask for less butter").
+
+Reply with ONLY this JSON, best pick first:
+{"items": [{"name": "dish as printed", "grams": n, "kcal": n, "protein_g": n, "carbs_g": n, "fat_g": n,
+  "fiber_g": n, "kcal_low": n, "kcal_high": n, "assumption": "..."}]}
+If the photo is not a readable menu, reply {"items": []}"""
 
         const val MEAL_PROMPT = """Estimate the nutrition of the food in this meal. The eater is an adult in Mumbai, India, eggetarian (no meat or fish).
 Where it is from: {PLACE}

@@ -8,7 +8,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.mealmapper.AppContainer
 import app.mealmapper.data.ai.AiException
+import app.mealmapper.data.ai.AiParsing
 import app.mealmapper.data.ai.LookupOutcome
+import app.mealmapper.data.log.LoggedItem
 import app.mealmapper.data.off.LookupResult
 import app.mealmapper.data.off.ParseResult
 import app.mealmapper.domain.Basis
@@ -42,7 +44,9 @@ sealed interface ReviewRequest {
     data class Label(val photo: Uri, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
     data class Web(val photo: Uri?, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
     /** A plate of food: photo and/or the user's words. [photo] is null for "type what you ate". */
-    data class Meal(val photo: Uri?, override val note: String, val restaurant: Boolean) : ReviewRequest
+    data class Meal(val photo: Uri?, override val note: String, val restaurant: Boolean, val restaurantName: String?) : ReviewRequest
+    /** A menu photo: top picks for the calories left today. */
+    data class Menu(val photo: Uri, override val note: String, val restaurantName: String?) : ReviewRequest
 }
 
 /** One food on a plate. Values are AI estimates; the user can change the grams or leave the item out. */
@@ -55,6 +59,8 @@ data class MealRow(
     val highKcal: Double?,
     val assumption: String?,
     val include: Boolean = true,
+    /** Restaurant's published values (found by search), not an estimate. */
+    val published: Boolean = false,
 ) {
     val grams: Double? get() = gramsText.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it <= ReviewForm.MAX_AMOUNT }
     val nutrients: Nutrients? get() = grams?.let { per100.scaled(it / 100.0) }
@@ -155,6 +161,7 @@ sealed interface ReviewState {
     data class Failed(val message: String) : ReviewState
     data class Ready(val form: ReviewForm) : ReviewState
     data class Meal(val form: MealForm) : ReviewState
+    data class Menu(val picks: List<AiParsing.MealItem>, val kcalLeft: Int?, val restaurantName: String?) : ReviewState
     data class Saved(val message: String) : ReviewState
 }
 
@@ -172,7 +179,7 @@ class ReviewViewModel(
         is ReviewRequest.Barcode -> request.code
         is ReviewRequest.Label -> request.barcode
         is ReviewRequest.Web -> request.barcode
-        is ReviewRequest.Meal -> null
+        is ReviewRequest.Meal, is ReviewRequest.Menu -> null
     }
 
     init {
@@ -186,6 +193,7 @@ class ReviewViewModel(
                 is ReviewRequest.Label -> labelFlow(request.photo)
                 is ReviewRequest.Web -> webFlow(request.photo)
                 is ReviewRequest.Meal -> mealFlow(request)
+                is ReviewRequest.Menu -> menuFlow(request)
             }
         }
     }
@@ -241,18 +249,40 @@ class ReviewViewModel(
 
     private suspend fun mealFlow(meal: ReviewRequest.Meal) {
         _state.value = ReviewState.Loading(if (meal.photo != null) "Looking at your meal…" else "Working out your meal…")
-        val items = runLookup { c.nutritionLookup.meal(meal.photo?.let { jpeg(it) }, meal.note, meal.restaurant) } ?: return
+        val items = runLookup {
+            c.nutritionLookup.meal(meal.photo?.let { jpeg(it) }, meal.note, meal.restaurant, meal.restaurantName)
+        } ?: return
+        showMeal(items, meal.restaurant || meal.restaurantName != null)
+    }
+
+    private fun showMeal(items: List<AiParsing.MealItem>, restaurant: Boolean) {
         _state.value = ReviewState.Meal(
             MealForm(
                 rows = items.map {
-                    MealRow(it.name, it.grams.roundToInt().toString(), it.per100, it.grams, it.lowKcal, it.highKcal, it.assumption)
+                    MealRow(
+                        it.name, it.grams.roundToInt().toString(), it.per100, it.grams, it.lowKcal, it.highKcal, it.assumption,
+                        published = it.published,
+                    )
                 },
                 slot = mealSlotFor(LocalTime.now()),
-                note = meal.note.take(ReviewForm.MAX_NOTE),
-                restaurant = meal.restaurant,
+                note = request.note.take(ReviewForm.MAX_NOTE),
+                restaurant = restaurant,
             ),
         )
     }
+
+    private suspend fun menuFlow(menu: ReviewRequest.Menu) {
+        _state.value = ReviewState.Loading("Reading the menu…")
+        val left = runCatching {
+            val cap = c.profile.profile.value.dailyCapKcal ?: return@runCatching null
+            cap - c.healthConnect.todayTotals().energyKcal.roundToInt()
+        }.getOrNull()
+        val picks = runLookup { c.nutritionLookup.menu(jpeg(menu.photo), menu.note, left, menu.restaurantName) } ?: return
+        _state.value = ReviewState.Menu(picks, left, menu.restaurantName)
+    }
+
+    /** The user ordered a pick: it becomes a one-item meal to check and save. */
+    fun choosePick(pick: AiParsing.MealItem) = showMeal(listOf(pick), restaurant = true)
 
     private fun editMeal(block: (MealForm) -> MealForm) = _state.update {
         if (it is ReviewState.Meal && !it.form.saving) ReviewState.Meal(block(it.form).copy(error = null)) else it
@@ -270,8 +300,12 @@ class ReviewViewModel(
         val form = (_state.value as? ReviewState.Meal)?.form ?: return
         if (!form.canSave) return
         val now = Instant.now()
-        val tag = if (form.restaurant) "restaurant est." else "est."
         val entries = form.rows.filter { it.include }.mapIndexed { i, row ->
+            val tag = when {
+                row.published -> "published"
+                form.restaurant -> "restaurant est."
+                else -> "est."
+            }
             NutritionEntry(
                 clientId = UUID.randomUUID().toString(),
                 name = "${row.name} · ${row.grams!!.roundToInt()} g · $tag",
@@ -284,7 +318,14 @@ class ReviewViewModel(
         _state.value = ReviewState.Meal(form.copy(saving = true))
         viewModelScope.launch {
             var written = 0
-            runCatching { entries.forEach { c.healthConnect.write(it); written++ } }
+            val rows = form.rows.filter { it.include }
+            runCatching {
+                entries.forEachIndexed { i, e ->
+                    c.healthConnect.write(e)
+                    c.log.add(LoggedItem.of(e, rows[i].grams!!, "g", rows[i].per100, estimate = !rows[i].published))
+                    written++
+                }
+            }
                 .onSuccess {
                     val kcal = entries.sumOf { it.nutrients.energyKcal }
                     _state.value = ReviewState.Saved("Saved meal: ${entries.size} items, ${Math.round(kcal)} kcal")
@@ -412,6 +453,7 @@ class ReviewViewModel(
                 .onSuccess {
                     // Remember the confirmed values for this barcode: next scan is instant and identical.
                     c.productCache.put(form.product.copy(name = baseName, brand = null, per100 = form.per100))
+                    c.log.add(LoggedItem.of(entry, form.amount!!, form.product.basis.unit, form.per100, estimate = false))
                     _state.value = ReviewState.Saved("Saved: $baseName, ${Math.round(portion.energyKcal)} kcal")
                 }
                 .onFailure { e ->

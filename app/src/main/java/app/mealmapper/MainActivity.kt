@@ -17,6 +17,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import app.mealmapper.ui.history.HistoryScreen
+import app.mealmapper.ui.history.HistoryViewModel
 import app.mealmapper.ui.home.HomeScreen
 import app.mealmapper.ui.home.HomeViewModel
 import app.mealmapper.ui.photo.PhotoKind
@@ -36,6 +38,7 @@ private object Routes {
     const val SCAN = "scan"
     const val SETUP = "setup"
     const val SETTINGS = "settings"
+    const val HISTORY = "history"
     const val PHOTO = "photo?mode={mode}&kind={kind}&code={code}&name={name}"
     const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}&place={place}"
 
@@ -67,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = nav, startDestination = Routes.HOME) {
                     composable(Routes.HOME) {
                         val vm: HomeViewModel = viewModel(
-                            factory = HomeViewModel.factory(container.healthConnect, container.profile),
+                            factory = HomeViewModel.factory(container),
                         )
                         HomeScreen(
                             viewModel = vm,
@@ -76,9 +79,16 @@ class MainActivity : ComponentActivity() {
                             onBarcode = { nav.navigate(Routes.SCAN) },
                             onCamera = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MEAL)) },
                             onUpload = { nav.navigate(Routes.photo(PhotoMode.UPLOAD, PhotoKind.MEAL)) },
+                            onType = { nav.navigate(Routes.photo(PhotoMode.TYPE, PhotoKind.MEAL)) },
+                            onMenu = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MENU)) },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
+                            onHistory = { nav.navigate(Routes.HISTORY) },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )
+                    }
+                    composable(Routes.HISTORY) {
+                        val vm: HistoryViewModel = viewModel(factory = HistoryViewModel.factory(container))
+                        HistoryScreen(vm, onBack = { nav.popBackStack() })
                     }
                     composable(Routes.SETTINGS) {
                         SettingsScreen(
@@ -106,14 +116,21 @@ class MainActivity : ComponentActivity() {
                             hasAiKey = hasAiKey,
                             onBack = { nav.popBackStack() },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
-                            onAnalyse = { kind, photo, note, restaurant ->
+                            onAnalyse = { kind, photo, note, restaurant, restaurantName ->
                                 val reviewKind = when (kind) {
                                     PhotoKind.MEAL -> "meal"
+                                    PhotoKind.MENU -> "menu"
                                     PhotoKind.LABEL -> "label"
                                     PhotoKind.PACK -> "web"
                                 }
                                 val place = if (restaurant) "restaurant" else "home"
-                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photo = photo, name = name, place = place))
+                                // For meals and menus the name argument carries the restaurant name.
+                                val reviewName = when {
+                                    kind == PhotoKind.MENU || (kind == PhotoKind.MEAL && restaurant) -> restaurantName.ifBlank { null }
+                                    kind == PhotoKind.MEAL -> null
+                                    else -> name
+                                }
+                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photo = photo, name = reviewName, place = place))
                             },
                         )
                     }
@@ -125,7 +142,8 @@ class MainActivity : ComponentActivity() {
                         val request = when (entry.arg("kind")) {
                             "label" -> ReviewRequest.Label(photo!!, note, code, name)
                             "web" -> ReviewRequest.Web(photo, note, code, name)
-                            "meal" -> ReviewRequest.Meal(photo, note, restaurant = entry.arg("place") == "restaurant")
+                            "meal" -> ReviewRequest.Meal(photo, note, restaurant = entry.arg("place") == "restaurant", restaurantName = name)
+                            "menu" -> ReviewRequest.Menu(photo!!, note, restaurantName = name)
                             else -> ReviewRequest.Barcode(code.orEmpty(), note)
                         }
                         val vm: ReviewViewModel = viewModel(

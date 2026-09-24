@@ -38,6 +38,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mealmapper.CrashLog
+import app.mealmapper.data.log.LoggedItem
+import app.mealmapper.ui.common.fmt
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.text.style.TextOverflow
 import app.mealmapper.domain.DayTotals
 import app.mealmapper.ui.theme.tabular
 import java.time.LocalDate
@@ -53,11 +58,25 @@ fun HomeScreen(
     onBarcode: () -> Unit,
     onCamera: () -> Unit,
     onUpload: () -> Unit,
+    onType: () -> Unit,
+    onMenu: () -> Unit,
     onSettings: () -> Unit,
+    onHistory: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val quick by viewModel.quick.collectAsStateWithLifecycle()
+    val quickMessage by viewModel.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+
+    LaunchedEffect(quickMessage) {
+        quickMessage?.let {
+            viewModel.messageShown()
+            val undo = it.startsWith("Logged:")
+            val result = snackbar.showSnackbar(it, actionLabel = if (undo) "Undo" else null, duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoLast()
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     LaunchedEffect(savedMessage) {
@@ -86,6 +105,7 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                TextButton(onClick = onHistory) { Text("History") }
                 TextButton(onClick = onSettings) { Text("Settings") }
             }
 
@@ -110,7 +130,40 @@ fun HomeScreen(
             CaptureOption("Scan barcode", "Packaged food. Open Food Facts, then the web.", enabled = true, onClick = onBarcode)
             CaptureOption("Take a photo", "A meal, a nutrition label or a pack front.", enabled = true, onClick = onCamera)
             CaptureOption("Upload a photo", "From your gallery. Meal, label or pack front.", enabled = true, onClick = onUpload)
+            CaptureOption("Type what you ate", "\"2 phulka, 1 katori dal, 1 glass buttermilk\"", enabled = true, onClick = onType)
+            CaptureOption("Scan a menu", "Top 3 picks for your calories left.", enabled = true, onClick = onMenu)
+
+            if (quick.favourites.isNotEmpty() || quick.recent.isNotEmpty()) {
+                Text("Log again", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+                Text(
+                    "One tap logs the same amount now. Star foods in History to keep them here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                (quick.favourites + quick.recent).forEach { item ->
+                    QuickRow(item, onClick = { viewModel.logAgain(item) })
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun QuickRow(item: LoggedItem, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(if (item.favourite) "★ " else "+ ", color = MaterialTheme.colorScheme.primary)
+        Text(item.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            "${item.amount.fmt()} ${item.unit} · ${item.nutrients.energyKcal.roundToInt()} kcal",
+            style = MaterialTheme.typography.bodyMedium.tabular(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

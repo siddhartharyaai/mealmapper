@@ -44,6 +44,7 @@ import app.mealmapper.domain.isIndianBarcode
 import app.mealmapper.domain.portionOptions
 import app.mealmapper.ui.common.fmt
 import app.mealmapper.ui.photo.PhotoKind
+import app.mealmapper.data.ai.AiParsing
 import app.mealmapper.ui.common.kcal
 import app.mealmapper.ui.theme.tabular
 
@@ -90,6 +91,7 @@ fun ReviewScreen(
                 )
                 is ReviewState.Ready -> Form(s.form, viewModel)
                 is ReviewState.Meal -> MealReview(s.form, viewModel)
+                is ReviewState.Menu -> MenuPicks(s, onPick = viewModel::choosePick, onBack = onBack)
             }
         }
     }
@@ -269,6 +271,44 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
     }
 }
 
+/** Top picks from a menu photo. Tapping one turns it into a meal to check and save. */
+@Composable
+private fun MenuPicks(state: ReviewState.Menu, onPick: (AiParsing.MealItem) -> Unit, onBack: () -> Unit) {
+    Text(
+        (state.restaurantName?.let { "$it · " } ?: "") +
+            (state.kcalLeft?.let { if (it >= 0) "$it kcal left today" else "${-it} kcal over today" } ?: "No daily cap set"),
+        style = MaterialTheme.typography.titleMedium,
+    )
+    Text(
+        "Eggetarian dishes from this menu. Calories are estimates for a normal restaurant portion.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    state.picks.take(3).forEachIndexed { i, pick ->
+        val kcal = pick.per100.scaled(pick.grams / 100.0)
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1}. ${pick.name}", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Text("≈ ${kcal.energyKcal.kcal()} kcal", style = MaterialTheme.typography.titleMedium.tabular())
+                }
+                Text(
+                    "P ${kcal.proteinG.fmt1()} g · C ${kcal.carbsG.fmt1()} g · F ${kcal.fatG.fmt1()} g" +
+                        (if (pick.lowKcal != null && pick.highKcal != null) " · ${pick.lowKcal.kcal()}–${pick.highKcal.kcal()} kcal" else ""),
+                    style = MaterialTheme.typography.bodySmall.tabular(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                pick.assumption?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                OutlinedButton(onClick = { onPick(pick) }) { Text("I ordered this: log it") }
+            }
+        }
+    }
+    TextButton(onClick = onBack) { Text("Back") }
+}
+
 /** The product's nutrition table: per 100 g/ml, and per serving when the pack gives one. */
 @Composable
 private fun Facts(form: ReviewForm) {
@@ -389,7 +429,11 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
                         )
                     }
                     row.assumption?.let {
-                        Text("Assumed: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                        if (row.published) {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Text("Assumed: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                        }
                     }
                 }
             }

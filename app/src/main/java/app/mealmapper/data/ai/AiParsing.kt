@@ -72,6 +72,8 @@ object AiParsing {
         val lowKcal: Double?,
         val highKcal: Double?,
         val assumption: String?,
+        /** True when the values are a restaurant's published ones, found by Google Search. */
+        val published: Boolean = false,
     )
 
     /**
