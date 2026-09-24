@@ -111,9 +111,9 @@ fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway, 
                         Button(onClick = { open(healthConnect.installIntent()) }) { Text("Update Health Connect") }
                     }
                     HealthConnectAvailability.AVAILABLE -> when {
-                        state.permissionGranted -> Body("Meal Mapper can write nutrition. It cannot read anything.")
+                        state.permissionGranted -> Body("Meal Mapper can log food and read today's nutrition total. Nothing else.")
                         else -> {
-                            Body("Meal Mapper asks for one permission: write nutrition. It does not read your health data.")
+                            Body("Meal Mapper asks for nutrition only: write, to log food; read, to show today's total. No other health data.")
                             Button(onClick = { permissionLauncher.launch(viewModel.requiredPermissions) }) {
                                 Text("Allow access")
                             }

@@ -153,6 +153,21 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
     )
 
+    form.amountFromNote?.let {
+        Text(
+            "From your note: $it",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+    if (form.amountFromNote == null && form.note.isNotBlank() && !form.fromLabel) {
+        Text(
+            "Your note did not give an amount in g, ml, pack or servings. Set the amount above.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
     Totals(portion)
     if (form.per100.energyLooksWrong()) {
         Warning("Calories do not match protein, carbs and fat on this label. Check the values below.")

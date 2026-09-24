@@ -12,9 +12,13 @@ import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Energy
 import androidx.health.connect.client.units.Mass
+import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.time.TimeRangeFilter
+import app.mealmapper.domain.DayTotals
 import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.NutritionEntry
 import java.time.Duration
+import java.time.LocalDate
 import java.time.ZoneId
 
 enum class HealthConnectAvailability { AVAILABLE, UPDATE_REQUIRED, NOT_INSTALLED }
@@ -22,8 +26,11 @@ enum class HealthConnectAvailability { AVAILABLE, UPDATE_REQUIRED, NOT_INSTALLED
 /** The only class that talks to Health Connect. Google Health and Samsung Health both read from it. */
 class HealthConnectGateway(private val context: Context) {
 
-    val requiredPermissions: Set<String> =
-        setOf(HealthPermission.getWritePermission(NutritionRecord::class))
+    // Write: log food. Read: today's total for the ticker (all apps, so it matches Google Health).
+    val requiredPermissions: Set<String> = setOf(
+        HealthPermission.getWritePermission(NutritionRecord::class),
+        HealthPermission.getReadPermission(NutritionRecord::class),
+    )
 
     private val client: HealthConnectClient by lazy { HealthConnectClient.getOrCreate(context) }
 
@@ -70,6 +77,31 @@ class HealthConnectGateway(private val context: Context) {
             sodium = n.sodiumMg?.let(Mass::milligrams),
         )
         client.insertRecords(listOf(record))
+    }
+
+    /**
+     * Totals for the local calendar day. Aggregation lets Health Connect remove duplicates between
+     * apps using the user's data-source priority, the same way Google Health does.
+     */
+    suspend fun todayTotals(): DayTotals {
+        val today = LocalDate.now()
+        val result = client.aggregate(
+            AggregateRequest(
+                metrics = setOf(
+                    NutritionRecord.ENERGY_TOTAL,
+                    NutritionRecord.PROTEIN_TOTAL,
+                    NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL,
+                    NutritionRecord.TOTAL_FAT_TOTAL,
+                ),
+                timeRangeFilter = TimeRangeFilter.between(today.atStartOfDay(), today.plusDays(1).atStartOfDay()),
+            ),
+        )
+        return DayTotals(
+            energyKcal = result[NutritionRecord.ENERGY_TOTAL]?.inKilocalories ?: 0.0,
+            proteinG = result[NutritionRecord.PROTEIN_TOTAL]?.inGrams ?: 0.0,
+            carbsG = result[NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL]?.inGrams ?: 0.0,
+            fatG = result[NutritionRecord.TOTAL_FAT_TOTAL]?.inGrams ?: 0.0,
+        )
     }
 
     suspend fun delete(clientId: String) {

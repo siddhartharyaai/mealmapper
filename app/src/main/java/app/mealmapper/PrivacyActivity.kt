@@ -46,8 +46,9 @@ class PrivacyActivity : ComponentActivity() {
     private companion object {
         val POINTS = listOf(
             "Meal Mapper writes the food you confirm to Health Connect: calories, protein, carbs, fat, " +
-                "sugar, fibre and sodium. It does not read any health data.",
-            "Your food history stays on this phone.",
+                "sugar, fibre and sodium.",
+            "It reads nutrition for today only, to show calories eaten and left. It reads no other health data.",
+            "Your food history and settings (age, weight, calorie cap) stay on this phone.",
             "When you scan a barcode, the barcode number goes to Open Food Facts to look up the product.",
             "When you use a photo, the photo and your note go to Google Gemini to estimate or read the " +
                 "nutrition. Nothing else is sent.",

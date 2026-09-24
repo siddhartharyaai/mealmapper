@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -55,7 +57,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 
 @Composable
-fun ScanScreen(onBack: () -> Unit, onBarcode: (String) -> Unit) {
+fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String) -> Unit) {
     val context = LocalContext.current
     var cameraAllowed by remember {
         mutableStateOf(
@@ -69,13 +71,15 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (String) -> Unit) {
     }
     LaunchedEffect(Unit) { if (!cameraAllowed) permission.launch(Manifest.permission.CAMERA) }
 
+    // Typed before scanning: the scan navigates away as soon as it reads a code.
+    var note by rememberSaveable { mutableStateOf("") }
     var typed by remember { mutableStateOf("") }
     var typedError by remember { mutableStateOf<String?>(null) }
     var torchOn by remember { mutableStateOf(false) }
 
     fun submitTyped() {
         val code = typed.filter(Char::isDigit)
-        if (isValidBarcode(code)) onBarcode(code) else typedError = "That number does not look right. Check the digits under the barcode."
+        if (isValidBarcode(code)) onBarcode(code, note.trim()) else typedError = "That number does not look right. Check the digits under the barcode."
     }
 
     Scaffold { padding ->
@@ -96,16 +100,27 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (String) -> Unit) {
                 }
             }
 
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it.take(80) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("What and how much (optional)") },
+                placeholder = { Text("half pack · 2 servings · 150 g · 1 glass") },
+                supportingText = { Text("Type it before you scan. Amounts in g, ml, pack or servings are used directly.") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            )
+
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f)
+                    .aspectRatio(1f)
                     .clip(RoundedCornerShape(20.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center,
             ) {
                 if (cameraAllowed) {
-                    BarcodeCamera(torchOn = torchOn, onBarcode = onBarcode)
+                    BarcodeCamera(torchOn = torchOn, onBarcode = { onBarcode(it, note.trim()) })
                 } else {
                     Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(

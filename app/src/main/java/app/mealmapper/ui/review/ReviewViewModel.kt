@@ -15,6 +15,7 @@ import app.mealmapper.domain.NutritionEntry
 import app.mealmapper.domain.Nutrients
 import app.mealmapper.domain.defaultPortion
 import app.mealmapper.domain.mealSlotFor
+import app.mealmapper.domain.parsePortion
 import app.mealmapper.ui.common.fmt
 import java.time.Instant
 import java.time.LocalTime
@@ -47,6 +48,8 @@ data class ReviewForm(
     val editingLabel: Boolean = false,
     /** True when the values were typed from the label, not taken from Open Food Facts. */
     val fromLabel: Boolean = false,
+    /** Set when the amount came from the user's note, e.g. "125 g (half pack)". Cleared on manual change. */
+    val amountFromNote: String? = null,
     val saving: Boolean = false,
     val error: String? = null,
 ) {
@@ -86,6 +89,8 @@ sealed interface ReviewState {
 
 class ReviewViewModel(
     private val barcode: String,
+    /** The "What and how much" text typed before scanning. */
+    private val initialNote: String,
     private val openFoodFacts: OpenFoodFactsClient,
     private val healthConnect: HealthConnectGateway,
 ) : ViewModel() {
@@ -116,7 +121,8 @@ class ReviewViewModel(
         val empty = Nutrients(0.0, 0.0, 0.0, 0.0)
         val product = FoodProduct(barcode, productName ?: "", null, empty, Basis.GRAMS, null, null)
         _state.value = ReviewState.Ready(
-            formFor(product).copy(
+            baseForm(product).copy(
+                note = initialNote.take(ReviewForm.MAX_NOTE),
                 amountText = "",
                 per100Text = NutrientField.entries.associateWith { "" },
                 editingLabel = true,
@@ -125,7 +131,16 @@ class ReviewViewModel(
         )
     }
 
-    private fun formFor(product: FoodProduct) = ReviewForm(
+    private fun formFor(product: FoodProduct): ReviewForm {
+        val parsed = parsePortion(initialNote, product)
+        return baseForm(product).copy(
+            note = initialNote.take(ReviewForm.MAX_NOTE),
+            amountText = parsed?.amount?.fmt() ?: defaultPortion(product).fmt(),
+            amountFromNote = parsed?.explanation,
+        )
+    }
+
+    private fun baseForm(product: FoodProduct) = ReviewForm(
         product = product,
         name = listOfNotNull(product.brand?.takeUnless { product.name.contains(it, ignoreCase = true) }, product.name)
             .joinToString(" "),
@@ -150,7 +165,8 @@ class ReviewViewModel(
     }
 
     fun setName(v: String) = edit { it.copy(name = v) }
-    fun setAmount(v: String) = edit { it.copy(amountText = v.filter { c -> c.isDigit() || c == '.' }.take(6)) }
+    fun setAmount(v: String) =
+        edit { it.copy(amountText = v.filter { c -> c.isDigit() || c == '.' }.take(6), amountFromNote = null) }
     fun setSlot(v: MealSlot) = edit { it.copy(slot = v) }
     fun setNote(v: String) = edit { it.copy(note = v.take(ReviewForm.MAX_NOTE)) }
     fun toggleEditLabel() = edit { it.copy(editingLabel = !it.editingLabel) }
@@ -196,7 +212,11 @@ class ReviewViewModel(
     }
 
     companion object {
-        fun factory(barcode: String, openFoodFacts: OpenFoodFactsClient, healthConnect: HealthConnectGateway) =
-            viewModelFactory { initializer { ReviewViewModel(barcode, openFoodFacts, healthConnect) } }
+        fun factory(
+            barcode: String,
+            note: String,
+            openFoodFacts: OpenFoodFactsClient,
+            healthConnect: HealthConnectGateway,
+        ) = viewModelFactory { initializer { ReviewViewModel(barcode, note, openFoodFacts, healthConnect) } }
     }
 }

@@ -198,6 +198,8 @@ Plus 20 packaged products checked label-vs-app.
 
 ## 9. Build order (each step ends in a working APK)
 
+The phased plan with a user test after each phase is in `ROADMAP.md`. It supersedes the list below.
+
 1. ~~Skeleton, CI~~ done.
 2. ~~Health Connect write; confirmed in Google Health~~ done. Samsung Health still to confirm.
 3. ~~Barcode + Open Food Facts + Review + save~~ done. Add: "What and how much" field on the scan screen.

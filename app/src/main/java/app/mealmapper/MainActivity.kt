@@ -1,5 +1,6 @@
 package app.mealmapper
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,9 +16,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.mealmapper.ui.home.HomeScreen
+import app.mealmapper.ui.home.HomeViewModel
 import app.mealmapper.ui.review.ReviewScreen
 import app.mealmapper.ui.review.ReviewViewModel
 import app.mealmapper.ui.scan.ScanScreen
+import app.mealmapper.ui.settings.SettingsScreen
 import app.mealmapper.ui.setup.SetupScreen
 import app.mealmapper.ui.setup.SetupViewModel
 import app.mealmapper.ui.theme.MealMapperTheme
@@ -26,8 +29,9 @@ private object Routes {
     const val HOME = "home"
     const val SCAN = "scan"
     const val SETUP = "setup"
-    const val REVIEW = "review/{barcode}"
-    fun review(barcode: String) = "review/$barcode"
+    const val SETTINGS = "settings"
+    const val REVIEW = "review/{barcode}?note={note}"
+    fun review(barcode: String, note: String) = "review/$barcode?note=${Uri.encode(note)}"
 }
 
 class MainActivity : ComponentActivity() {
@@ -42,27 +46,45 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(navController = nav, startDestination = Routes.HOME) {
                     composable(Routes.HOME) {
+                        val vm: HomeViewModel = viewModel(
+                            factory = HomeViewModel.factory(container.healthConnect, container.profile),
+                        )
                         HomeScreen(
-                            healthConnect = container.healthConnect,
+                            viewModel = vm,
                             savedMessage = savedMessage,
                             onMessageShown = { savedMessage = null },
                             onBarcode = { nav.navigate(Routes.SCAN) },
-                            onSetup = { nav.navigate(Routes.SETUP) },
+                            onSettings = { nav.navigate(Routes.SETTINGS) },
+                            onHealthCheck = { nav.navigate(Routes.SETUP) },
+                        )
+                    }
+                    composable(Routes.SETTINGS) {
+                        SettingsScreen(
+                            store = container.profile,
+                            onBack = { nav.popBackStack() },
+                            onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )
                     }
                     composable(Routes.SCAN) {
                         ScanScreen(
                             onBack = { nav.popBackStack() },
-                            onBarcode = { code -> nav.navigate(Routes.review(code)) { launchSingleTop = true } },
+                            onBarcode = { code, note -> nav.navigate(Routes.review(code, note)) { launchSingleTop = true } },
                         )
                     }
                     composable(
                         Routes.REVIEW,
-                        arguments = listOf(navArgument("barcode") { type = NavType.StringType }),
+                        arguments = listOf(
+                            navArgument("barcode") { type = NavType.StringType },
+                            navArgument("note") {
+                                type = NavType.StringType
+                                defaultValue = ""
+                            },
+                        ),
                     ) { entry ->
                         val barcode = entry.arguments?.getString("barcode").orEmpty()
+                        val note = entry.arguments?.getString("note").orEmpty()
                         val vm: ReviewViewModel = viewModel(
-                            factory = ReviewViewModel.factory(barcode, container.openFoodFacts, container.healthConnect),
+                            factory = ReviewViewModel.factory(barcode, note, container.openFoodFacts, container.healthConnect),
                         )
                         ReviewScreen(
                             viewModel = vm,
