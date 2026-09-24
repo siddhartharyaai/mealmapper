@@ -153,6 +153,12 @@ Test
 1. 2 real menus. Do the picks make sense for your day?
 Pass: picks are eggetarian, within calories left, and you would actually order at least one.
 
+## Voice (1.1.0)
+
+Deepgram Nova-3 pre-recorded, `language=multi` (Hindi + English code-switching in one sentence, no toggle),
+~65 Indian food keyterms. Key pasted in Settings, encrypted on the phone. $0.0052/min + $0.0013/min keyterms
+(Deepgram pricing page, 24 Sep 2026); new accounts get $200 credit. Replaced the Android recognizer (poor on Hinglish).
+
 ## Phase 8: Small
 
 1.0.0: Home redesigned (ticker, one grid of log options, Today list, Log again), empty states, full test in TESTING.md.
