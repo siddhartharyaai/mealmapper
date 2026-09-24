@@ -49,7 +49,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway) {
+fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -86,10 +86,13 @@ fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway) 
                 .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Meal Mapper", style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text("Back") }
+                Text("Setup", style = MaterialTheme.typography.titleLarge)
+            }
             Text(
-                "Setup check. One test entry must reach Google Health and Samsung Health " +
-                    "before we build scanning on top.",
+                "Check that entries reach Google Health and Samsung Health. " +
+                    "Use the test entry after any phone or app update.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -129,8 +132,8 @@ fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway) 
             }
 
             StepCard(number = 2, title = "Write a test entry", done = state.lastWrittenAt != null) {
-                val entry = SetupViewModel.TEST_ENTRY
-                Body(entry.name)
+                val entry = SetupViewModel.TEST_ENTRY.nutrients
+                Body(SetupViewModel.TEST_ENTRY.name)
                 NutrientTable(
                     listOf(
                         "Energy" to "${entry.energyKcal.fmt()} kcal",
@@ -162,8 +165,8 @@ fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway) 
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Label("Samsung Health")
                 Body(
-                    "First, one time: in Health Connect, open App permissions → Samsung Health and " +
-                        "allow it to read Nutrition. Then open the Food tracker. " +
+                    "First, one time: Samsung Health → ⋮ → Settings → Health Connect, and allow it to " +
+                        "read Nutrition. Then open Food. " +
                         "Samsung Health can take a few minutes to sync.",
                 )
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))

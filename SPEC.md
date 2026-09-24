@@ -120,7 +120,7 @@ data class NutritionEstimate(
 
 1. Skeleton: Compose app, theme, navigation, CI builds a debug APK.
 2. Health Connect: permission flow + write a hard-coded record. Confirm it shows in Google Health and Samsung Health. **Gate: if Samsung Health does not show it, stop and decide.**
-3. Barcode: CameraX + ML Kit + Open Food Facts + Review + save.
+3. Barcode: CameraX + ML Kit + Open Food Facts + Review + save. Not found -> type label values (per 100 g) until step 4 adds label photos. Note field is appended to the name ("Food · note") so it shows in Google Health.
 4. Camera + Upload with Label mode: Gemini label reading into the same Review screen.
 5. Meal mode (camera + upload) with India prompt and component list.
 6. History: Room, log again, delete (also from Health Connect).

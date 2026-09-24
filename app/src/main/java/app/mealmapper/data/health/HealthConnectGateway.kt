@@ -47,6 +47,7 @@ class HealthConnectGateway(private val context: Context) {
         val start = entry.eatenAt
         // Health Connect needs end > start. One minute is enough for a meal log.
         val end = start.plus(Duration.ofMinutes(1))
+        val n = entry.nutrients
         val record = NutritionRecord(
             startTime = start,
             startZoneOffset = zone.rules.getOffset(start),
@@ -56,16 +57,17 @@ class HealthConnectGateway(private val context: Context) {
                 clientRecordId = entry.clientId,
                 clientRecordVersion = System.currentTimeMillis(),
             ),
-            name = entry.name,
+            // Health Connect caps text fields; keep names short and readable in Google Health.
+            name = entry.name.take(MAX_NAME_LENGTH),
             mealType = entry.slot.toHealthConnect(),
-            energy = Energy.kilocalories(entry.energyKcal),
-            protein = Mass.grams(entry.proteinG),
-            totalCarbohydrate = Mass.grams(entry.carbsG),
-            totalFat = Mass.grams(entry.fatG),
-            saturatedFat = entry.saturatedFatG?.let(Mass::grams),
-            sugar = entry.sugarG?.let(Mass::grams),
-            dietaryFiber = entry.fiberG?.let(Mass::grams),
-            sodium = entry.sodiumMg?.let(Mass::milligrams),
+            energy = Energy.kilocalories(n.energyKcal),
+            protein = Mass.grams(n.proteinG),
+            totalCarbohydrate = Mass.grams(n.carbsG),
+            totalFat = Mass.grams(n.fatG),
+            saturatedFat = n.saturatedFatG?.let(Mass::grams),
+            sugar = n.sugarG?.let(Mass::grams),
+            dietaryFiber = n.fiberG?.let(Mass::grams),
+            sodium = n.sodiumMg?.let(Mass::milligrams),
         )
         client.insertRecords(listOf(record))
     }
@@ -91,6 +93,7 @@ class HealthConnectGateway(private val context: Context) {
 
     private companion object {
         const val PROVIDER_PACKAGE = "com.google.android.apps.healthdata"
+        const val MAX_NAME_LENGTH = 100
     }
 }
 

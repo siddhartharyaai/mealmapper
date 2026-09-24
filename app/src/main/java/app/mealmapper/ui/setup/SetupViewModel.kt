@@ -8,6 +8,7 @@ import app.mealmapper.data.health.HealthConnectAvailability
 import app.mealmapper.data.health.HealthConnectGateway
 import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.NutritionEntry
+import app.mealmapper.domain.Nutrients
 import app.mealmapper.domain.mealSlotFor
 import java.time.Instant
 import java.time.LocalTime
@@ -87,14 +88,16 @@ class SetupViewModel(private val healthConnect: HealthConnectGateway) : ViewMode
             name = "Masala chai, 1 cup (Meal Mapper test)",
             slot = MealSlot.SNACK,
             eatenAt = Instant.EPOCH,
-            energyKcal = 76.0,
-            proteinG = 2.3,
-            carbsG = 11.4,
-            fatG = 2.3,
-            saturatedFatG = 1.5,
-            sugarG = 11.4,
-            fiberG = 0.0,
-            sodiumMg = 35.0,
+            nutrients = Nutrients(
+                energyKcal = 76.0,
+                proteinG = 2.3,
+                carbsG = 11.4,
+                fatG = 2.3,
+                saturatedFatG = 1.5,
+                sugarG = 11.4,
+                fiberG = 0.0,
+                sodiumMg = 35.0,
+            ),
         )
 
         fun factory(healthConnect: HealthConnectGateway) = viewModelFactory {
