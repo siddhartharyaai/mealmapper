@@ -9,7 +9,7 @@ APK: https://github.com/siddhartharyaai/mealmapper/releases/download/latest-debu
 |---|---|---|---|
 | 1 | Small | Portion note before barcode lookup; Settings (age, weight, calorie cap); daily ticker | Nothing |
 | 2 | Small | History, edit/delete, meal time, Recent, Favourites | Nothing |
-| 3 | Medium | Gemini set-up; label photos from Camera and Upload | Gemini API key |
+| 3 | Medium | Gemini set-up; **web product lookup** (barcode miss or product photo); label photos | Gemini API key |
 | 4 | Large | Food databank (Indian + international, drinks, alcohol); log any food by name | 20 min of searching |
 | 5 | Large | Meal photos: tap questions, ranges, katori + household fat calibration, house versions | 30 weighed meals over ~2 weeks |
 | 6 | Medium | Restaurant meals: web lookup of restaurant and dish; chains' published values | 5 restaurant meals |
@@ -58,6 +58,16 @@ Pass: Google Health always matches the app after edit/delete.
 
 Build
 - Settings: paste Gemini API key (stored encrypted, never in the repo).
+- **Web product lookup** (added after the Britannia Nutri Choice test, where Open Food Facts had the name but
+  no values). Trigger: barcode not found / no values, or a photo of the front of a pack.
+  Gemini with Google Search grounding finds the product's nutrition table on the maker's site and Indian
+  retailers (BigBasket, Blinkit, Amazon.in). Rules:
+  - Output schema: per-100 g values + serving size + source URLs. No source URL -> no numbers.
+  - Variant check: the product name, pack size and flavour must match the pack (Nutri Choice has many variants).
+  - Two sources agreeing within 10% -> "web, 2 sources". One source -> "web, 1 source, check the pack".
+  - Same validation as labels: 4/4/9 energy, physical limits.
+  - Result saved on the phone by barcode: the next scan of the same product is instant and identical.
+- Label photo stays as the most accurate option ("the pack in your hand beats the internet").
 - Camera and Upload (gallery, several photos) with the "What and how much" field.
 - Label reading: Gemini copies the printed nutrition table (per 100 g and per serving; English/Hindi).
   The app checks: calories vs macros, per-serving vs per-100 g, physical limits. Failures are highlighted.
