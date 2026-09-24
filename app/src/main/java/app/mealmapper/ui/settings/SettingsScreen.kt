@@ -21,19 +21,32 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
+import app.mealmapper.data.gemini.GeminiClient
+import app.mealmapper.data.gemini.GeminiSettings
 import app.mealmapper.data.settings.Profile
 import app.mealmapper.data.settings.ProfileStore
 import app.mealmapper.domain.ProfileRules
 import app.mealmapper.ui.common.fmt
 
 @Composable
-fun SettingsScreen(store: ProfileStore, onBack: () -> Unit, onHealthCheck: () -> Unit) {
+fun SettingsScreen(
+    store: ProfileStore,
+    gemini: GeminiSettings,
+    geminiClient: GeminiClient,
+    onBack: () -> Unit,
+    onHealthCheck: () -> Unit,
+) {
     val saved = store.profile.value
     var age by rememberSaveable { mutableStateOf(saved.ageYears?.toString().orEmpty()) }
     var weight by rememberSaveable { mutableStateOf(saved.weightKg?.fmt().orEmpty()) }
@@ -91,6 +104,9 @@ fun SettingsScreen(store: ProfileStore, onBack: () -> Unit, onHealthCheck: () ->
             )
 
             HorizontalDivider()
+            GeminiSection(gemini, geminiClient)
+
+            HorizontalDivider()
             Text("Health Connect", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Check access, and write a test entry to confirm it reaches Google Health and Samsung Health.",
@@ -127,4 +143,76 @@ private fun NumberField(
         },
         keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
     )
+}
+
+/** Gemini API key (encrypted on the phone) and model name. */
+@Composable
+private fun GeminiSection(gemini: GeminiSettings, client: GeminiClient) {
+    val hasKey by gemini.hasKey.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var keyInput by remember { mutableStateOf("") }
+    var model by rememberSaveable { mutableStateOf(gemini.model) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun test() {
+        busy = true
+        status = "Testing…"
+        scope.launch {
+            status = runCatching { client.test() }.getOrElse { it.message ?: "Test failed." }
+            busy = false
+        }
+    }
+
+    Text("Gemini (reads labels, finds products online)", style = MaterialTheme.typography.titleMedium)
+    if (hasKey) {
+        Text("API key saved and encrypted on this phone.", style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = ::test, enabled = !busy) { Text("Test key") }
+            TextButton(onClick = {
+                gemini.clearKey()
+                status = "Key removed."
+            }) { Text("Remove key") }
+        }
+    } else {
+        Text(
+            "Get a free key at aistudio.google.com → Get API key. Paste it here, never in a chat.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = keyInput,
+            onValueChange = { keyInput = it.trim() },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Gemini API key") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        )
+        Button(
+            onClick = {
+                gemini.saveKey(keyInput)
+                keyInput = ""
+                test()
+            },
+            enabled = keyInput.length >= 20,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Save key") }
+    }
+    OutlinedTextField(
+        value = model,
+        onValueChange = { model = it.trim() },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Model") },
+        supportingText = { Text("Leave as is. Change only if Google retires it.") },
+        singleLine = true,
+    )
+    if (model != gemini.model) {
+        TextButton(onClick = {
+            gemini.model = model
+            model = gemini.model
+            status = "Model set to ${gemini.model}."
+        }) { Text("Use this model") }
+    }
+    status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
 }

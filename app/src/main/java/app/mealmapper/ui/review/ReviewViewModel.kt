@@ -1,30 +1,47 @@
 package app.mealmapper.ui.review
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import app.mealmapper.data.health.HealthConnectGateway
+import app.mealmapper.AppContainer
+import app.mealmapper.data.gemini.GeminiException
+import app.mealmapper.data.gemini.LookupOutcome
 import app.mealmapper.data.off.LookupResult
-import app.mealmapper.data.off.OpenFoodFactsClient
 import app.mealmapper.data.off.ParseResult
 import app.mealmapper.domain.Basis
 import app.mealmapper.domain.FoodProduct
 import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.NutritionEntry
 import app.mealmapper.domain.Nutrients
+import app.mealmapper.domain.ProductSource
 import app.mealmapper.domain.defaultPortion
 import app.mealmapper.domain.mealSlotFor
 import app.mealmapper.domain.parsePortion
 import app.mealmapper.ui.common.fmt
+import app.mealmapper.ui.photo.ImageTools
 import java.time.Instant
 import java.time.LocalTime
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** What the Review screen was opened for. */
+sealed interface ReviewRequest {
+    val note: String
+
+    data class Barcode(val code: String, override val note: String) : ReviewRequest
+    data class Label(val photo: Uri, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
+    data class Web(val photo: Uri?, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
+}
 
 enum class NutrientField(val label: String, val unit: String, val required: Boolean) {
     ENERGY("Energy", "kcal", true),
@@ -39,20 +56,23 @@ enum class NutrientField(val label: String, val unit: String, val required: Bool
 
 data class ReviewForm(
     val product: FoodProduct,
+    val source: ProductSource,
     val name: String,
     val amountText: String,
     val slot: MealSlot,
     val note: String = "",
     /** Label values per 100 g/ml as text, so the user can correct them field by field. */
     val per100Text: Map<NutrientField, String>,
+    /** Problems the app's checks found in AI-read values. Shown in amber; the values stay editable. */
+    val problems: List<String> = emptyList(),
     val editingLabel: Boolean = false,
-    /** True when the values were typed from the label, not taken from Open Food Facts. */
-    val fromLabel: Boolean = false,
     /** Set when the amount came from the user's note, e.g. "125 g (half pack)". Cleared on manual change. */
     val amountFromNote: String? = null,
     val saving: Boolean = false,
     val error: String? = null,
 ) {
+    val isManual: Boolean get() = source == ProductSource.Manual
+
     val amount: Double? get() = amountText.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it <= MAX_AMOUNT }
 
     val per100: Nutrients
@@ -80,85 +100,163 @@ data class ReviewForm(
 }
 
 sealed interface ReviewState {
-    data object Loading : ReviewState
-    data class NotFound(val barcode: String, val productName: String?) : ReviewState
+    data class Loading(val message: String) : ReviewState
+    /** Nothing usable found. [canSearchWeb] is false when no Gemini key is set. */
+    data class NotFound(
+        val barcode: String?,
+        val productName: String?,
+        val reason: String,
+        val canSearchWeb: Boolean,
+        val webTried: Boolean,
+    ) : ReviewState
     data class Failed(val message: String) : ReviewState
     data class Ready(val form: ReviewForm) : ReviewState
     data class Saved(val message: String) : ReviewState
 }
 
 class ReviewViewModel(
-    private val barcode: String,
-    /** The "What and how much" text typed before scanning. */
-    private val initialNote: String,
-    private val openFoodFacts: OpenFoodFactsClient,
-    private val healthConnect: HealthConnectGateway,
+    private val request: ReviewRequest,
+    private val app: Context,
+    private val c: AppContainer,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<ReviewState>(ReviewState.Loading)
+    private val _state = MutableStateFlow<ReviewState>(ReviewState.Loading("Looking up the product…"))
     val state: StateFlow<ReviewState> = _state.asStateFlow()
 
-    init {
-        lookup()
+    private var knownName: String? = (request as? ReviewRequest.Label)?.name ?: (request as? ReviewRequest.Web)?.name
+    private val barcode: String? = when (request) {
+        is ReviewRequest.Barcode -> request.code
+        is ReviewRequest.Label -> request.barcode
+        is ReviewRequest.Web -> request.barcode
     }
 
-    fun lookup() {
-        _state.value = ReviewState.Loading
+    init {
+        start()
+    }
+
+    fun start() {
         viewModelScope.launch {
-            _state.value = when (val result = openFoodFacts.lookup(barcode)) {
-                is LookupResult.Failed -> ReviewState.Failed(result.reason)
-                is LookupResult.Found -> when (val parsed = result.result) {
-                    ParseResult.NotFound -> ReviewState.NotFound(barcode, null)
-                    is ParseResult.NoNutrition -> ReviewState.NotFound(barcode, parsed.name)
-                    is ParseResult.Product -> ReviewState.Ready(formFor(parsed.product))
-                }
+            when (request) {
+                is ReviewRequest.Barcode -> barcodeFlow(request.code)
+                is ReviewRequest.Label -> labelFlow(request.photo)
+                is ReviewRequest.Web -> webFlow(request.photo)
             }
         }
     }
 
-    /** Not in Open Food Facts: the user types the per-100 g values from the printed label. */
-    fun enterManually(productName: String?) {
-        val empty = Nutrients(0.0, 0.0, 0.0, 0.0)
-        val product = FoodProduct(barcode, productName ?: "", null, empty, Basis.GRAMS, null, null)
+    /** Saved product -> Open Food Facts -> web (automatic when a Gemini key is set). */
+    private suspend fun barcodeFlow(code: String) {
+        c.productCache.get(code)?.let {
+            show(it, ProductSource.Saved)
+            return
+        }
+        _state.value = ReviewState.Loading("Looking up the product…")
+        when (val result = c.openFoodFacts.lookup(code)) {
+            is LookupResult.Failed -> _state.value = ReviewState.Failed(result.reason)
+            is LookupResult.Found -> when (val parsed = result.result) {
+                is ParseResult.Product -> show(parsed.product, ProductSource.OpenFoodFacts)
+                is ParseResult.NoNutrition -> {
+                    knownName = parsed.name
+                    webOrNotFound("Open Food Facts has ${parsed.name ?: "this product"} but no nutrition values.")
+                }
+                ParseResult.NotFound -> webOrNotFound("Not in Open Food Facts.")
+            }
+        }
+    }
+
+    private suspend fun webOrNotFound(reason: String) {
+        if (c.geminiSettings.hasKey.value) webFlow(null) else notFound(reason, webTried = false)
+    }
+
+    /** User-triggered retry of the web search from the Not found screen. */
+    fun searchWeb() {
+        viewModelScope.launch { webFlow((request as? ReviewRequest.Web)?.photo) }
+    }
+
+    private suspend fun webFlow(photo: Uri?) {
+        _state.value = ReviewState.Loading("Searching the web for ${knownName ?: "this product"}…")
+        val outcome = runLookup {
+            c.nutritionLookup.web(barcode, knownName, request.note, photo?.let { jpeg(it) })
+        } ?: return
+        when (outcome) {
+            is LookupOutcome.Found -> show(outcome.product, outcome.source, outcome.problems)
+            is LookupOutcome.NotFound -> notFound(outcome.reason, webTried = true)
+        }
+    }
+
+    private suspend fun labelFlow(photo: Uri) {
+        _state.value = ReviewState.Loading("Reading the label…")
+        val outcome = runLookup { c.nutritionLookup.label(jpeg(photo), barcode, knownName, request.note) } ?: return
+        when (outcome) {
+            is LookupOutcome.Found -> show(outcome.product, outcome.source, outcome.problems)
+            is LookupOutcome.NotFound -> _state.value = ReviewState.Failed(outcome.reason)
+        }
+    }
+
+    private suspend fun <T> runLookup(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: GeminiException) {
+        _state.value = ReviewState.Failed(e.message ?: "Gemini failed. Try again.")
+        null
+    } catch (e: Exception) {
+        _state.value = ReviewState.Failed("Could not read the photo. Try another one.")
+        null
+    }
+
+    private suspend fun jpeg(uri: Uri): ByteArray = withContext(Dispatchers.IO) { ImageTools.jpeg(app, uri) }
+
+    private fun notFound(reason: String, webTried: Boolean) {
+        _state.value = ReviewState.NotFound(barcode, knownName, reason, c.geminiSettings.hasKey.value, webTried)
+    }
+
+    private fun show(product: FoodProduct, source: ProductSource, problems: List<String> = emptyList()) {
+        val parsed = parsePortion(request.note, product)
         _state.value = ReviewState.Ready(
-            baseForm(product).copy(
-                note = initialNote.take(ReviewForm.MAX_NOTE),
-                amountText = "",
-                per100Text = NutrientField.entries.associateWith { "" },
-                editingLabel = true,
-                fromLabel = true,
+            ReviewForm(
+                product = product,
+                source = source,
+                name = listOfNotNull(product.brand?.takeUnless { product.name.contains(it, ignoreCase = true) }, product.name)
+                    .joinToString(" "),
+                amountText = parsed?.amount?.fmt() ?: defaultPortion(product).fmt(),
+                amountFromNote = parsed?.explanation,
+                slot = mealSlotFor(LocalTime.now()),
+                note = request.note.take(ReviewForm.MAX_NOTE),
+                per100Text = per100Text(product.per100),
+                problems = problems,
+                editingLabel = problems.isNotEmpty(),
             ),
         )
     }
 
-    private fun formFor(product: FoodProduct): ReviewForm {
-        val parsed = parsePortion(initialNote, product)
-        return baseForm(product).copy(
-            note = initialNote.take(ReviewForm.MAX_NOTE),
-            amountText = parsed?.amount?.fmt() ?: defaultPortion(product).fmt(),
-            amountFromNote = parsed?.explanation,
+    /** Not found anywhere: the user types the per-100 g values from the printed label. */
+    fun enterManually() {
+        val product = FoodProduct(barcode.orEmpty(), knownName.orEmpty(), null, Nutrients(0.0, 0.0, 0.0, 0.0), Basis.GRAMS, null, null)
+        _state.value = ReviewState.Ready(
+            ReviewForm(
+                product = product,
+                source = ProductSource.Manual,
+                name = knownName.orEmpty(),
+                amountText = "",
+                slot = mealSlotFor(LocalTime.now()),
+                note = request.note.take(ReviewForm.MAX_NOTE),
+                per100Text = NutrientField.entries.associateWith { "" },
+                editingLabel = true,
+            ),
         )
     }
 
-    private fun baseForm(product: FoodProduct) = ReviewForm(
-        product = product,
-        name = listOfNotNull(product.brand?.takeUnless { product.name.contains(it, ignoreCase = true) }, product.name)
-            .joinToString(" "),
-        amountText = defaultPortion(product).fmt(),
-        slot = mealSlotFor(LocalTime.now()),
-        per100Text = with(product.per100) {
-            mapOf(
-                NutrientField.ENERGY to energyKcal,
-                NutrientField.PROTEIN to proteinG,
-                NutrientField.CARBS to carbsG,
-                NutrientField.SUGAR to sugarG,
-                NutrientField.FAT to fatG,
-                NutrientField.SATURATED_FAT to saturatedFatG,
-                NutrientField.FIBER to fiberG,
-                NutrientField.SODIUM to sodiumMg,
-            ).mapValues { (_, v) -> v?.fmt() ?: "" }
-        },
-    )
+    private fun per100Text(n: Nutrients) = mapOf(
+        NutrientField.ENERGY to n.energyKcal,
+        NutrientField.PROTEIN to n.proteinG,
+        NutrientField.CARBS to n.carbsG,
+        NutrientField.SUGAR to n.sugarG,
+        NutrientField.FAT to n.fatG,
+        NutrientField.SATURATED_FAT to n.saturatedFatG,
+        NutrientField.FIBER to n.fiberG,
+        NutrientField.SODIUM to n.sodiumMg,
+    ).mapValues { (_, v) -> v?.fmt() ?: "" }
 
     private fun edit(block: (ReviewForm) -> ReviewForm) = _state.update {
         if (it is ReviewState.Ready && !it.form.saving) ReviewState.Ready(block(it.form).copy(error = null)) else it
@@ -199,8 +297,10 @@ class ReviewViewModel(
         )
         _state.value = ReviewState.Ready(form.copy(saving = true))
         viewModelScope.launch {
-            runCatching { healthConnect.write(entry) }
+            runCatching { c.healthConnect.write(entry) }
                 .onSuccess {
+                    // Remember the confirmed values for this barcode: next scan is instant and identical.
+                    c.productCache.put(form.product.copy(name = baseName, brand = null, per100 = form.per100))
                     _state.value = ReviewState.Saved("Saved: $baseName, ${Math.round(portion.energyKcal)} kcal")
                 }
                 .onFailure { e ->
@@ -212,11 +312,7 @@ class ReviewViewModel(
     }
 
     companion object {
-        fun factory(
-            barcode: String,
-            note: String,
-            openFoodFacts: OpenFoodFactsClient,
-            healthConnect: HealthConnectGateway,
-        ) = viewModelFactory { initializer { ReviewViewModel(barcode, note, openFoodFacts, healthConnect) } }
+        fun factory(request: ReviewRequest, app: Context, container: AppContainer) =
+            viewModelFactory { initializer { ReviewViewModel(request, app.applicationContext, container) } }
     }
 }

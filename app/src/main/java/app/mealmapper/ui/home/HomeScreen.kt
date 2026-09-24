@@ -51,6 +51,8 @@ fun HomeScreen(
     savedMessage: String?,
     onMessageShown: () -> Unit,
     onBarcode: () -> Unit,
+    onCamera: () -> Unit,
+    onUpload: () -> Unit,
     onSettings: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
@@ -105,9 +107,9 @@ fun HomeScreen(
             }
 
             Text("Log what you ate", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
-            CaptureOption("Scan barcode", "Packaged food. Looks it up on Open Food Facts.", enabled = true, onClick = onBarcode)
-            CaptureOption("Take a photo", "A meal or a nutrition label. Coming in phase 3 and 5.", enabled = false, onClick = {})
-            CaptureOption("Upload a photo", "From your gallery. Coming in phase 3 and 5.", enabled = false, onClick = {})
+            CaptureOption("Scan barcode", "Packaged food. Open Food Facts, then the web.", enabled = true, onClick = onBarcode)
+            CaptureOption("Take a photo", "Nutrition label or pack front. Meals in phase 5.", enabled = true, onClick = onCamera)
+            CaptureOption("Upload a photo", "From your gallery. Label or pack front.", enabled = true, onClick = onUpload)
         }
     }
 }

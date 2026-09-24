@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.Nutrients
+import app.mealmapper.domain.ProductSource
 import app.mealmapper.domain.isIndianBarcode
 import app.mealmapper.domain.portionOptions
 import app.mealmapper.ui.common.fmt
@@ -44,7 +45,13 @@ import app.mealmapper.ui.common.kcal
 import app.mealmapper.ui.theme.tabular
 
 @Composable
-fun ReviewScreen(viewModel: ReviewViewModel, onBack: () -> Unit, onSaved: (String) -> Unit) {
+fun ReviewScreen(
+    viewModel: ReviewViewModel,
+    onBack: () -> Unit,
+    onSaved: (String) -> Unit,
+    onPhotographLabel: (barcode: String?, name: String?) -> Unit,
+    onSettings: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(state) {
@@ -66,9 +73,17 @@ fun ReviewScreen(viewModel: ReviewViewModel, onBack: () -> Unit, onSaved: (Strin
                 Text("Review", style = MaterialTheme.typography.titleLarge)
             }
             when (val s = state) {
-                ReviewState.Loading, is ReviewState.Saved -> Loading()
-                is ReviewState.Failed -> Failed(s.message, onRetry = viewModel::lookup, onBack = onBack)
-                is ReviewState.NotFound -> NotFound(s, onManual = { viewModel.enterManually(s.productName) }, onBack = onBack)
+                is ReviewState.Loading -> Loading(s.message)
+                is ReviewState.Saved -> Loading("Saving…")
+                is ReviewState.Failed -> Failed(s.message, onRetry = viewModel::start, onBack = onBack)
+                is ReviewState.NotFound -> NotFound(
+                    s,
+                    onWeb = viewModel::searchWeb,
+                    onLabel = { onPhotographLabel(s.barcode, s.productName) },
+                    onManual = viewModel::enterManually,
+                    onSettings = onSettings,
+                    onBack = onBack,
+                )
                 is ReviewState.Ready -> Form(s.form, viewModel)
             }
         }
@@ -76,11 +91,11 @@ fun ReviewScreen(viewModel: ReviewViewModel, onBack: () -> Unit, onSaved: (Strin
 }
 
 @Composable
-private fun Loading() {
+private fun Loading(message: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CircularProgressIndicator()
-            Text("Looking up the product…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -90,25 +105,42 @@ private fun Failed(message: String, onRetry: () -> Unit, onBack: () -> Unit) {
     Text(message, style = MaterialTheme.typography.bodyLarge)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onRetry) { Text("Try again") }
-        OutlinedButton(onClick = onBack) { Text("Scan again") }
+        OutlinedButton(onClick = onBack) { Text("Back") }
     }
 }
 
 @Composable
-private fun NotFound(state: ReviewState.NotFound, onManual: () -> Unit, onBack: () -> Unit) {
-    val title = if (state.productName == null) "Not in Open Food Facts" else "${state.productName}: no nutrition values"
-    Text(title, style = MaterialTheme.typography.headlineSmall)
+private fun NotFound(
+    state: ReviewState.NotFound,
+    onWeb: () -> Unit,
+    onLabel: () -> Unit,
+    onManual: () -> Unit,
+    onSettings: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Text(state.productName ?: "Not found", style = MaterialTheme.typography.headlineSmall)
     Text(
         buildString {
-            append("Barcode ${state.barcode}. ")
-            if (isIndianBarcode(state.barcode)) append("Many Indian products are missing from Open Food Facts. ")
-            append("Type the values from the printed label (per 100 g) now. Label photo reading comes in the next build.")
+            append(state.reason)
+            state.barcode?.takeIf { it.isNotBlank() }?.let {
+                append(" Barcode $it.")
+                if (isIndianBarcode(it) && !state.webTried) append(" Many Indian products are missing from Open Food Facts.")
+            }
         },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Enter label values") }
-    OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Scan again") }
+    Button(onClick = onLabel, modifier = Modifier.fillMaxWidth()) { Text("Photograph the label (most accurate)") }
+    when {
+        !state.canSearchWeb -> OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) {
+            Text("Add a Gemini key to search the web")
+        }
+        else -> OutlinedButton(onClick = onWeb, modifier = Modifier.fillMaxWidth()) {
+            Text(if (state.webTried) "Search the web again" else "Find it online")
+        }
+    }
+    OutlinedButton(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Type the label values") }
+    TextButton(onClick = onBack) { Text("Back") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -126,13 +158,20 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
     )
     Text(
-        if (form.fromLabel) "Your label values · per 100 $unit" else "Open Food Facts · per 100 $unit · check against the pack",
+        "${form.source.label} · values per 100 $unit",
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (form.source is ProductSource.Web && (form.source as ProductSource.Web).agreeing < 2) {
+            MaterialTheme.colorScheme.tertiary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
     )
+    if (form.problems.isNotEmpty()) {
+        Warning("Check these against the pack: " + form.problems.joinToString(" "))
+    }
 
     Section("How much")
-    if (!form.fromLabel) {
+    if (!form.isManual) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             portionOptions(form.product).forEach { option ->
                 FilterChip(
@@ -160,7 +199,7 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
             color = MaterialTheme.colorScheme.primary,
         )
     }
-    if (form.amountFromNote == null && form.note.isNotBlank() && !form.fromLabel) {
+    if (form.amountFromNote == null && form.note.isNotBlank() && !form.isManual) {
         Text(
             "Your note did not give an amount in g, ml, pack or servings. Set the amount above.",
             style = MaterialTheme.typography.bodySmall,

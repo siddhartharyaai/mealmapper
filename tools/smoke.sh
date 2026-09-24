@@ -62,6 +62,14 @@ run() {
   [ -s "$OUT/tap.txt" ] || return 1
   sleep 4
   if crashed; then echo "CRASH on Settings ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  adb shell input keyevent 4; sleep 3
+  tap_text "Upload a photo" || return 1
+  sleep 4
+  if crashed; then echo "CRASH on Upload ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  adb shell input keyevent 4; sleep 3
+  tap_text "Take a photo" || return 1
+  sleep 4
+  if crashed; then echo "CRASH on Take a photo ($label)"; cat "$OUT/crash.txt"; return 1; fi
   echo "OK: $label"
 }
 
