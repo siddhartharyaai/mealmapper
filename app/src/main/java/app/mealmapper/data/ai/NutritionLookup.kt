@@ -66,14 +66,14 @@ class NutritionLookup(private val gemini: GeminiClient) {
     }
 
     /** Estimates a plate of food from a photo and/or the user's words. Always labelled as an estimate. */
-    suspend fun meal(photo: ByteArray?, note: String, restaurant: Boolean, restaurantName: String?): List<AiParsing.MealItem> {
+    suspend fun meal(photos: List<ByteArray>, note: String, restaurant: Boolean, restaurantName: String?): List<AiParsing.MealItem> {
         val place = when {
             restaurantName != null -> "$RESTAURANT Restaurant: $restaurantName."
             restaurant -> RESTAURANT
             else -> HOME
         }
         val prompt = MEAL_PROMPT.replace("{PLACE}", place).replace("{NOTE}", note.ifBlank { "none" })
-        val items = AiParsing.meal(gemini.vision(prompt, listOfNotNull(photo)).text)
+        val items = AiParsing.meal(gemini.vision(prompt, photos).text)
         if (items.isEmpty()) throw AiException("No food recognised. Try a clearer photo, or type what you ate.")
         return if (restaurantName != null) published(restaurantName, items) else items
     }
@@ -106,12 +106,12 @@ class NutritionLookup(private val gemini: GeminiClient) {
     }
 
     /** Photo of a menu: the 3 best dishes for the calories left today, eggetarian. Estimates, with reasons. */
-    suspend fun menu(photo: ByteArray, note: String, kcalLeft: Int?, restaurantName: String?): List<AiParsing.MealItem> {
+    suspend fun menu(photos: List<ByteArray>, note: String, kcalLeft: Int?, restaurantName: String?): List<AiParsing.MealItem> {
         val prompt = MENU_PROMPT
             .replace("{LEFT}", kcalLeft?.let { "$it kcal left today" } ?: "no daily cap set; prefer high protein and moderate calories")
             .replace("{RESTAURANT}", restaurantName ?: "unknown")
             .replace("{NOTE}", note.ifBlank { "none" })
-        val picks = AiParsing.meal(gemini.vision(prompt, listOf(photo)).text)
+        val picks = AiParsing.meal(gemini.vision(prompt, photos).text)
         if (picks.isEmpty()) throw AiException("Could not read dishes from this photo. Take the menu closer, in good light.")
         return picks
     }
@@ -218,7 +218,7 @@ Report:
 Reply with ONLY this JSON:
 {"items": [{"name": "...", "grams": n, "kcal": n, "protein_g": n, "carbs_g": n, "fat_g": n}]}"""
 
-        const val MENU_PROMPT = """The photo shows a restaurant menu in India. Restaurant: {RESTAURANT}.
+        const val MENU_PROMPT = """The photos show a restaurant menu in India (one or more pages). Restaurant: {RESTAURANT}.
 The eater: adult in Mumbai, EGGETARIAN (vegetarian plus eggs; no meat, chicken, fish or seafood). {LEFT}.
 Eater's note: {NOTE}
 
@@ -240,6 +240,7 @@ What the eater says (this is the truth; it overrides what you see): {NOTE}
 
 Rules:
 1. List each separate food: e.g. dal, rice, phulka, sabzi, raita, salad, pickle, sweet, drink.
+   There may be several photos of ONE meal (e.g. one per dish). List each food once, even if it appears in two photos.
    If there is no photo, use only the eater's words.
 2. Portions: use the eater's counts and sizes exactly. Otherwise estimate from the photo using Indian references:
    katori 150 ml, steel plate 28 cm, phulka 30-35 g, chapati 40 g, paratha 70-90 g, cooked rice 1 katori = 150 g,

@@ -44,9 +44,10 @@ sealed interface ReviewRequest {
     data class Label(val photo: Uri, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
     data class Web(val photo: Uri?, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
     /** A plate of food: photo and/or the user's words. [photo] is null for "type what you ate". */
-    data class Meal(val photo: Uri?, override val note: String, val restaurant: Boolean, val restaurantName: String?) : ReviewRequest
-    /** A menu photo: top picks for the calories left today. */
-    data class Menu(val photo: Uri, override val note: String, val restaurantName: String?) : ReviewRequest
+    /** A meal: one or more photos (one per dish is fine), and/or the user's words. */
+    data class Meal(val photos: List<Uri>, override val note: String, val restaurant: Boolean, val restaurantName: String?) : ReviewRequest
+    /** Menu photos (one per page): top picks for the calories left today. */
+    data class Menu(val photos: List<Uri>, override val note: String, val restaurantName: String?) : ReviewRequest
 }
 
 /** One food on a plate. Values are AI estimates; the user can change the grams or leave the item out. */
@@ -248,9 +249,15 @@ class ReviewViewModel(
     }
 
     private suspend fun mealFlow(meal: ReviewRequest.Meal) {
-        _state.value = ReviewState.Loading(if (meal.photo != null) "Looking at your meal…" else "Working out your meal…")
+        _state.value = ReviewState.Loading(
+            when (meal.photos.size) {
+                0 -> "Working out your meal…"
+                1 -> "Looking at your meal…"
+                else -> "Looking at your ${meal.photos.size} photos…"
+            },
+        )
         val items = runLookup {
-            c.nutritionLookup.meal(meal.photo?.let { jpeg(it) }, meal.note, meal.restaurant, meal.restaurantName)
+            c.nutritionLookup.meal(jpegs(meal.photos), meal.note, meal.restaurant, meal.restaurantName)
         } ?: return
         showMeal(items, meal.restaurant || meal.restaurantName != null)
     }
@@ -277,7 +284,7 @@ class ReviewViewModel(
             val cap = c.profile.profile.value.dailyCapKcal ?: return@runCatching null
             cap - c.healthConnect.todayTotals().energyKcal.roundToInt()
         }.getOrNull()
-        val picks = runLookup { c.nutritionLookup.menu(jpeg(menu.photo), menu.note, left, menu.restaurantName) } ?: return
+        val picks = runLookup { c.nutritionLookup.menu(jpegs(menu.photos), menu.note, left, menu.restaurantName) } ?: return
         _state.value = ReviewState.Menu(picks, left, menu.restaurantName)
     }
 
@@ -357,6 +364,12 @@ class ReviewViewModel(
     }
 
     private suspend fun jpeg(uri: Uri): ByteArray = withContext(Dispatchers.IO) { ImageTools.jpeg(app, uri) }
+
+    /** Several photos are sent smaller so a 6-photo meal stays a quick upload on mobile data. */
+    private suspend fun jpegs(uris: List<Uri>): List<ByteArray> = withContext(Dispatchers.IO) {
+        val side = if (uris.size > 2) 1280 else 1600
+        uris.map { ImageTools.jpeg(app, it, side) }
+    }
 
     private fun notFound(reason: String, webTried: Boolean) {
         _state.value = ReviewState.NotFound(barcode, knownName, reason, c.aiSettings.hasKey.value, webTried)

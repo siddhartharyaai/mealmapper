@@ -25,8 +25,8 @@ object ImageTools {
         }
     }
 
-    fun jpeg(context: Context, uri: Uri): ByteArray {
-        val bitmap = loadBitmap(context, uri)
+    fun jpeg(context: Context, uri: Uri, maxSide: Int = MAX_SIDE): ByteArray {
+        val bitmap = loadBitmap(context, uri, maxSide)
         return ByteArrayOutputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
             out.toByteArray()

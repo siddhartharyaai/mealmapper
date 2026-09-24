@@ -8,6 +8,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +58,8 @@ import kotlinx.coroutines.withContext
 /** TYPE: no photo, the user describes the meal in words. */
 enum class PhotoMode { CAMERA, UPLOAD, TYPE }
 
+private const val MAX_PHOTOS = 6
+
 /** What the photo shows. */
 enum class PhotoKind(val label: String, val hint: String) {
     MEAL("Meal", "A plate, thali or drink. Gemini estimates each item; you can fix the grams."),
@@ -72,7 +76,7 @@ fun PhotoScreen(
     hasAiKey: Boolean,
     onBack: () -> Unit,
     onSettings: () -> Unit,
-    onAnalyse: (kind: PhotoKind, photo: Uri?, note: String, restaurant: Boolean, restaurantName: String) -> Unit,
+    onAnalyse: (kind: PhotoKind, photos: List<Uri>, note: String, restaurant: Boolean, restaurantName: String) -> Unit,
 ) {
     val context = LocalContext.current
     var kind by rememberSaveable { mutableStateOf(if (mode == PhotoMode.TYPE) PhotoKind.MEAL else initialKind) }
@@ -80,14 +84,25 @@ fun PhotoScreen(
     var note by rememberSaveable { mutableStateOf("") }
     var restaurant by rememberSaveable { mutableStateOf(false) }
     var restaurantName by rememberSaveable { mutableStateOf("") }
-    var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
-    // Saveable: the camera app can push Meal Mapper out of memory while the photo is being taken.
+    // Uris kept as strings so the list survives the camera app pushing Meal Mapper out of memory.
+    var photoStrings by rememberSaveable { mutableStateOf(ArrayList<String>()) }
+    val photos = photoStrings.map(Uri::parse)
+    // Meals and menus can span several photos (one per dish or menu page). Labels and packs use one.
+    val multi = kind == PhotoKind.MEAL || kind == PhotoKind.MENU
+    fun addPhotos(new: List<Uri>) {
+        val merged = if (multi) (photoStrings + new.map(Uri::toString)).distinct().take(MAX_PHOTOS) else new.take(1).map(Uri::toString)
+        photoStrings = ArrayList(merged)
+    }
     var pending by rememberSaveable { mutableStateOf<Uri?>(null) }
-    var preview by remember { mutableStateOf<ImageBitmap?>(null) }
+    var previews by remember { mutableStateOf<List<ImageBitmap>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(kind) {
+        if (!multi && photoStrings.size > 1) photoStrings = ArrayList(photoStrings.take(1))
+    }
+
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) photo = pending
+        if (ok) pending?.let { addPhotos(listOf(it)) }
     }
     fun launchCamera() {
         val dir = File(context.cacheDir, "photos").apply { mkdirs() }
@@ -101,12 +116,18 @@ fun PhotoScreen(
         if (granted) launchCamera() else error = "Camera access is needed to take a photo. Or use Upload."
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) photo = uri
+        if (uri != null) addPhotos(listOf(uri))
+    }
+    val pickMany = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
+        if (uris.isNotEmpty()) addPhotos(uris)
     }
     fun getPhoto() {
         error = null
         when (mode) {
-            PhotoMode.UPLOAD -> pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            PhotoMode.UPLOAD -> {
+                val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                if (multi) pickMany.launch(request) else pick.launch(request)
+            }
             PhotoMode.TYPE -> Unit
             PhotoMode.CAMERA ->
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -117,14 +138,12 @@ fun PhotoScreen(
         }
     }
 
-    LaunchedEffect(photo) {
-        val uri = photo ?: return@LaunchedEffect
-        preview = runCatching {
-            withContext(Dispatchers.IO) { ImageTools.loadBitmap(context, uri, maxSide = 900).asImageBitmap() }
-        }.getOrElse {
-            error = "Could not open that photo. Try another one."
-            null
+    LaunchedEffect(photoStrings) {
+        val loaded = withContext(Dispatchers.IO) {
+            photos.mapNotNull { uri -> runCatching { ImageTools.loadBitmap(context, uri, maxSide = 900).asImageBitmap() }.getOrNull() }
         }
+        if (loaded.size < photos.size) error = "Could not open one of the photos. Remove it or try another."
+        previews = loaded
     }
 
     Scaffold { padding ->
@@ -205,28 +224,49 @@ fun PhotoScreen(
 
             if (typing) {
                 Button(
-                    onClick = { onAnalyse(PhotoKind.MEAL, null, note.trim(), restaurant, restaurantName.trim()) },
+                    onClick = { onAnalyse(PhotoKind.MEAL, emptyList(), note.trim(), restaurant, restaurantName.trim()) },
                     enabled = hasAiKey && note.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Estimate") }
                 return@Column
             }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 180.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center,
-            ) {
-                val image = preview
-                if (image != null) {
-                    Image(image, contentDescription = "Your photo", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
-                } else {
+            when {
+                previews.size == 1 -> Image(
+                    previews[0],
+                    contentDescription = "Your photo",
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+                    contentScale = ContentScale.FillWidth,
+                )
+                previews.size > 1 -> Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    previews.forEachIndexed { i, image ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Image(
+                                image,
+                                contentDescription = "Photo ${i + 1}",
+                                Modifier.size(150.dp).clip(RoundedCornerShape(16.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            TextButton(onClick = { photoStrings = ArrayList(photoStrings.filterIndexed { j, _ -> j != i }) }) {
+                                Text("Remove")
+                            }
+                        }
+                    }
+                }
+                else -> Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 180.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
                         when (kind) {
-                            PhotoKind.MEAL -> "Shoot from above, whole plate in view."
-                            PhotoKind.MENU -> "One menu page, flat, text readable."
+                            PhotoKind.MEAL -> "One photo of the whole plate, or one photo per dish (up to $MAX_PHOTOS)."
+                            PhotoKind.MENU -> "One photo per menu page (up to $MAX_PHOTOS), flat, text readable."
                             PhotoKind.LABEL -> "Hold the label flat, fill the frame, good light."
                             PhotoKind.PACK -> "Show the brand, variant and pack size."
                         },
@@ -237,35 +277,56 @@ fun PhotoScreen(
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-            val current = photo
-            if (current == null) {
+            if (photos.isEmpty()) {
                 Button(onClick = ::getPhoto, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (mode == PhotoMode.CAMERA) "Take photo" else "Choose photo")
+                    Text(
+                        when {
+                            mode == PhotoMode.CAMERA -> "Take photo"
+                            multi -> "Choose photos"
+                            else -> "Choose photo"
+                        },
+                    )
                 }
                 if (kind == PhotoKind.MEAL) {
                     OutlinedButton(
-                        onClick = { onAnalyse(kind, null, note.trim(), restaurant, restaurantName.trim()) },
+                        onClick = { onAnalyse(kind, emptyList(), note.trim(), restaurant, restaurantName.trim()) },
                         enabled = hasAiKey && note.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("No photo: estimate from my words") }
                 }
             } else {
+                val count = if (photos.size > 1) " (${photos.size} photos)" else ""
                 Button(
-                    onClick = { onAnalyse(kind, current, note.trim(), restaurant, restaurantName.trim()) },
-                    enabled = hasAiKey && preview != null,
+                    onClick = { onAnalyse(kind, photos, note.trim(), restaurant, restaurantName.trim()) },
+                    enabled = hasAiKey && previews.size == photos.size,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         when (kind) {
-                            PhotoKind.MEAL -> "Estimate this meal"
-                            PhotoKind.MENU -> "Suggest what to order"
+                            PhotoKind.MEAL -> "Estimate this meal$count"
+                            PhotoKind.MENU -> "Suggest what to order$count"
                             PhotoKind.LABEL -> "Read the label"
                             PhotoKind.PACK -> "Find it online"
                         },
                     )
                 }
-                OutlinedButton(onClick = ::getPhoto, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (mode == PhotoMode.CAMERA) "Retake" else "Choose another")
+                if (multi && photos.size < MAX_PHOTOS) {
+                    OutlinedButton(onClick = ::getPhoto, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            when {
+                                kind == PhotoKind.MENU -> "Add another menu page"
+                                mode == PhotoMode.CAMERA -> "Take another dish"
+                                else -> "Add more photos"
+                            },
+                        )
+                    }
+                }
+                if (!multi) {
+                    OutlinedButton(onClick = ::getPhoto, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (mode == PhotoMode.CAMERA) "Retake" else "Choose another")
+                    }
+                } else {
+                    TextButton(onClick = { photoStrings = ArrayList() }) { Text("Start again") }
                 }
             }
         }

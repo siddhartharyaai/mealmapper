@@ -45,8 +45,9 @@ private object Routes {
     fun photo(mode: PhotoMode, kind: PhotoKind, code: String? = null, name: String? = null) =
         "photo?mode=${mode.name}&kind=${kind.name}&code=${enc(code)}&name=${enc(name)}"
 
-    fun review(kind: String, code: String? = null, note: String = "", photo: Uri? = null, name: String? = null, place: String = "") =
-        "review?kind=$kind&code=${enc(code)}&note=${enc(note)}&photo=${enc(photo?.toString())}&name=${enc(name)}&place=$place"
+    /** Several photos travel as one argument, one Uri per line. */
+    fun review(kind: String, code: String? = null, note: String = "", photos: List<Uri> = emptyList(), name: String? = null, place: String = "") =
+        "review?kind=$kind&code=${enc(code)}&note=${enc(note)}&photo=${enc(photos.joinToString("\n"))}&name=${enc(name)}&place=$place"
 
     private fun enc(v: String?) = Uri.encode(v.orEmpty())
 
@@ -116,7 +117,7 @@ class MainActivity : ComponentActivity() {
                             hasAiKey = hasAiKey,
                             onBack = { nav.popBackStack() },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
-                            onAnalyse = { kind, photo, note, restaurant, restaurantName ->
+                            onAnalyse = { kind, photos, note, restaurant, restaurantName ->
                                 val reviewKind = when (kind) {
                                     PhotoKind.MEAL -> "meal"
                                     PhotoKind.MENU -> "menu"
@@ -130,7 +131,7 @@ class MainActivity : ComponentActivity() {
                                     kind == PhotoKind.MEAL -> null
                                     else -> name
                                 }
-                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photo = photo, name = reviewName, place = place))
+                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photos = photos, name = reviewName, place = place))
                             },
                         )
                     }
@@ -138,12 +139,13 @@ class MainActivity : ComponentActivity() {
                         val note = entry.arg("note").orEmpty()
                         val code = entry.arg("code")
                         val name = entry.arg("name")
-                        val photo = entry.arg("photo")?.let(Uri::parse)
+                        val photos = entry.arg("photo")?.split("\n")?.filter { it.isNotBlank() }?.map(Uri::parse).orEmpty()
+                        val photo = photos.firstOrNull()
                         val request = when (entry.arg("kind")) {
                             "label" -> ReviewRequest.Label(photo!!, note, code, name)
                             "web" -> ReviewRequest.Web(photo, note, code, name)
-                            "meal" -> ReviewRequest.Meal(photo, note, restaurant = entry.arg("place") == "restaurant", restaurantName = name)
-                            "menu" -> ReviewRequest.Menu(photo!!, note, restaurantName = name)
+                            "meal" -> ReviewRequest.Meal(photos, note, restaurant = entry.arg("place") == "restaurant", restaurantName = name)
+                            "menu" -> ReviewRequest.Menu(photos, note, restaurantName = name)
                             else -> ReviewRequest.Barcode(code.orEmpty(), note)
                         }
                         val vm: ReviewViewModel = viewModel(
