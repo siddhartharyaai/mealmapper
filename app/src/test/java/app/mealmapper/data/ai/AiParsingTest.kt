@@ -104,4 +104,18 @@ class AiParsingTest {
             "output":"【0†Nutri Choice Digestive†www.bigbasket.com】 Opened https://www.bigbasket.com/pd/40012345/ and https://britannia.co.in/nutri."}]}}]}"""
         assertEquals(listOf("bigbasket.com", "britannia.co.in"), AiParsing.reply(body).sites)
     }
+
+    @Test fun browserSnippetsBeforeAnswer() {
+        val content = "【0†Nutri Choice†https://www.bigbasket.com/pd/4001/】 Ingredients {wheat} … " +
+            "per 100 g energy 481 kcal (https://britannia.co.in/nutri).\n" +
+            "{\"found\": true, \"product_name\": \"Nutri Choice\", \"per_100\": {\"energy_kcal\": 481, " +
+            "\"protein_g\": 7.9, \"carbs_g\": 66.4, \"fat_g\": 20.6}, \"note\": \"see https://fake.example.com\"}"
+        val body = """{"choices":[{"message":{"content":${kotlinx.serialization.json.JsonPrimitive(content)}}}]}"""
+        val r = AiParsing.reply(body)
+        assertEquals(listOf("bigbasket.com", "britannia.co.in"), r.sites)
+        assertEquals(481.0, AiParsing.nutrition(r.text).per100!!.energyKcal, 0.0)
+    }
+
+    @Test fun lastJsonObjectSkipsStrayBraces() =
+        assertEquals("""{"a":1}""", AiParsing.lastJsonObject("snippet {not json} then {\"a\":1}"))
 }

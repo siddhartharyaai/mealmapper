@@ -64,10 +64,12 @@ class GroqClient(private val settings: AiSettings) {
         val body = buildJsonObject {
             put("model", model)
             put("temperature", 0.1)
-            // groq/compound searches on its own. gpt-oss models need Groq's built-in browser_search tool.
+            // gpt-oss models search with Groq's built-in browser_search tool (docs, 24 Sep 2026).
+            // Groq recommends low reasoning effort with it: faster, fewer tokens, same quality for lookups.
             if (search && model.startsWith("openai/gpt-oss")) {
                 putJsonArray("tools") { add(buildJsonObject { put("type", "browser_search") }) }
                 put("tool_choice", "required")
+                put("reasoning_effort", "low")
             }
             putJsonArray("messages") {
                 add(
@@ -177,15 +179,18 @@ class GroqClient(private val settings: AiSettings) {
     private class ModelUnavailable(message: String) : Exception(message)
 
     companion object {
-        /** In order of preference, as of 24 September 2026. The first one on the user's key is used. */
+        /**
+         * Read from console.groq.com/docs/models on 24 September 2026: qwen3.8-27b is the only image model
+         * (preview). Llama 4 entries stay as fallbacks for keys on older plans.
+         */
         val VISION_MODELS = listOf(
             "qwen/qwen3.8-27b",
             "meta-llama/llama-4-scout-17b-16e-instruct",
             "meta-llama/llama-4-maverick-17b-128e-instruct",
         )
 
-        /** groq/compound has web search built in; gpt-oss models use the browser_search tool. */
-        val WEB_MODELS = listOf("groq/compound", "openai/gpt-oss-120b", "openai/gpt-oss-20b")
+        /** Models with Groq's browser_search tool (production). groq/compound is no longer offered. */
+        val WEB_MODELS = listOf("openai/gpt-oss-120b", "openai/gpt-oss-20b")
 
         private const val BASE = "https://api.groq.com/openai/v1"
         private val JSON = "application/json".toMediaType()

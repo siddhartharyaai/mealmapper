@@ -30,7 +30,7 @@ class AiSettings(context: Context) {
 
     /** Searches the web for a product's nutrition table. */
     var webModel: String
-        get() = prefs.getString(WEB, null) ?: DEFAULT_WEB_MODEL
+        get() = prefs.getString(WEB, null)?.takeUnless { it == "groq/compound" } ?: DEFAULT_WEB_MODEL
         set(value) = prefs.edit().putString(WEB, value.trim().ifEmpty { DEFAULT_WEB_MODEL }).apply()
 
     fun saveKey(apiKey: String) {
@@ -75,8 +75,8 @@ class AiSettings(context: Context) {
     companion object {
         /** Groq's documented vision model as of 21 September 2026 (Llama 4 Scout left the free tier in June). */
         const val DEFAULT_VISION_MODEL = "qwen/qwen3.8-27b"
-        /** Groq's agentic system with built-in web search; returns the pages it searched. */
-        const val DEFAULT_WEB_MODEL = "groq/compound"
+        /** Production model with Groq's built-in browser_search tool. */
+        const val DEFAULT_WEB_MODEL = "openai/gpt-oss-120b"
         private const val KEYSTORE = "AndroidKeyStore"
         private const val ALIAS = "mealmapper_ai_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

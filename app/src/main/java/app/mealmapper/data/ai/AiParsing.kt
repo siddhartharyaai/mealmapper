@@ -45,8 +45,12 @@ object AiParsing {
             ?: throw AiException(errorMessage(body) ?: "The AI returned no answer.")
         val text = stripThinking(message.str("content").orEmpty())
         val tools = message["executed_tools"]
-        // Structured "url" fields first; some tools (browser_search) only report pages inside their text output.
-        val urls = urlsIn(tools).ifEmpty { textIn(tools).flatMap { URL.findAll(it).map { m -> m.value }.toList() } }
+        // Structured "url" fields first; browser_search may report pages only as text, either in the tool
+        // output or as page snippets placed before the answer. The model's own JSON answer is excluded.
+        val snippets = text.substringBefore(lastJsonObject(text) ?: "\u0000")
+        val urls = urlsIn(tools)
+            .ifEmpty { textIn(tools).flatMap { URL.findAll(it).map { m -> m.value }.toList() } }
+            .ifEmpty { URL.findAll(snippets).map { it.value }.toList() }
         val sites = urls.mapNotNull(::site).distinct()
         return AiReply(text, sites, root.str("model").orEmpty())
     }
@@ -76,6 +80,22 @@ object AiParsing {
         java.net.URI(url).host?.removePrefix("www.")
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
+    /**
+     * The last complete JSON object in the text. Web snippets before the answer can contain stray braces,
+     * so we try each "{" from the end until one parses as an object through the final "}".
+     */
+    fun lastJsonObject(text: String): String? {
+        val end = text.lastIndexOf('}')
+        if (end < 0) return null
+        var start = text.lastIndexOf('{', end)
+        while (start >= 0) {
+            val candidate = text.substring(start, end + 1)
+            if (runCatching { json.parseToJsonElement(candidate).jsonObject }.isSuccess) return candidate
+            start = text.lastIndexOf('{', start - 1)
+        }
+        return null
+    }
+
     /** The "message" field of an API error body, if any. */
     fun errorMessage(body: String): String? = runCatching {
         ((json.parseToJsonElement(body).jsonObject["error"] as? JsonObject)?.get("message") as? JsonPrimitive)?.content
@@ -83,11 +103,8 @@ object AiParsing {
 
     /** Finds the JSON object in the model's text (it may wrap it in ``` fences or add a sentence). */
     fun nutrition(text: String): AiNutrition {
-        val start = text.indexOf('{')
-        val end = text.lastIndexOf('}')
-        if (start < 0 || end <= start) throw AiException("The AI's answer had no data in it.")
-        val o = runCatching { json.parseToJsonElement(text.substring(start, end + 1)).jsonObject }
-            .getOrElse { throw AiException("The AI's answer was not readable.") }
+        val raw = lastJsonObject(text) ?: throw AiException("The AI's answer had no readable data in it.")
+        val o = json.parseToJsonElement(raw).jsonObject
 
         val per100 = (o["per_100"] as? JsonObject)?.let { n ->
             val kcal = n.num("energy_kcal")
