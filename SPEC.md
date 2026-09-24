@@ -3,14 +3,27 @@
 Personal Android app. One user. No backend. No login.
 It logs food to Health Connect. Google Health and Samsung Health read from Health Connect.
 
+## 0. User and context (read this first)
+
+One user: 48, Mumbai, eggetarian household (vegetarian + eggs; no meat, no fish).
+Mostly home food: dal, sabzi, roti/phulka, rice, poha, upma, idli/dosa, eggs, chai, curd.
+Eats out sometimes (restaurant food is oilier than home food). Buys Indian packaged food.
+Every default in this app is Indian: food names, portions, units, labels, meal times, time zone (IST).
+
 ## 1. Scope
 
-In v1:
+In v1, three capture modes. Every mode has an optional **context text field**
+("2 phulkas, no ghee", "restaurant", "half the plate", "Amul Taaza, 200 ml").
+The context goes to the lookup/prompt and is saved with the entry.
 
-1. Barcode scan -> Open Food Facts lookup -> nutrition per serving.
-2. Meal photo -> Gemini vision -> nutrition estimate.
-3. Label photo -> Gemini vision -> exact numbers from the printed nutrition table.
-   (Fallback when the barcode is not in Open Food Facts. This happens often for Indian products.)
+1. **Barcode**: live camera scan (or typed number) -> Open Food Facts lookup -> nutrition per serving.
+   Not found (common for Indian products) -> offer "Photograph the label" in one tap.
+2. **Camera**: take a photo now. User picks Meal or Label.
+3. **Upload**: pick an existing photo from the gallery (Android Photo Picker, no storage permission).
+   User picks Meal or Label.
+
+Meal photo -> Gemini estimate. Label photo -> Gemini reads the printed table (exact numbers).
+
 4. Review screen: user edits every number and the portion before save.
 5. Save -> one `NutritionRecord` in Health Connect, with meal type.
 6. Local history (last 30 days) with "log again".
@@ -72,7 +85,19 @@ data class NutritionEstimate(
 - Show the source and confidence on the Review screen. A photo estimate is an estimate.
 - Portion control on Review: grams field and quick multipliers (0.5x, 1x, 1.5x, 2x). All macros scale from per-100 g values.
 - Energy check: warn if `4*protein + 4*carbs + 9*fat` differs from kcal by more than 15%.
-- Gemini prompt context: Indian home cooking, eggetarian household. Ask for visible components, estimated grams per component, and assumed cooking fat (ghee/oil). Return JSON only, validated against a schema.
+- Gemini prompt: return JSON only, validated against a schema. Include the user's context text verbatim.
+
+## 4a. India rules
+
+- Reference data: estimates follow IFCT 2017 (NIN, Hyderabad) values for Indian foods, not USDA defaults.
+- Components: the prompt asks for each visible component with grams, plus the cooking fat (ghee/oil, in tsp) as its own line. Tadka and ghee are the biggest error source.
+- Home vs restaurant: default is home cooking. If context says restaurant/hotel/dhaba, or the photo looks like one, assume more oil and bigger portions.
+- Diet: never assume meat or fish. Ambiguous protein -> paneer, soya, egg, dal. If the photo clearly shows meat, say so and do not guess.
+- Units on Review: grams plus Indian household units: katori (150 ml), roti/phulka (count), tsp/tbsp ghee, cup (chai, 150 ml), glass (250 ml), piece.
+- Packaged labels (FSSAI format): read per 100 g and per serving; prefer per 100 g and scale. Handle "Energy (kcal)", "Total Sugars", "Added Sugars", "Sodium (mg)". Label text may be English or Hindi.
+- Barcodes: Indian products start with 890. Try Open Food Facts first; fall back to label photo.
+- Meal types (IST, Mumbai habits): breakfast 05:00-11:00, lunch 11:00-16:00, snack 16:00-20:30, dinner 20:30-05:00. User can change it.
+- Frequent items (chai, phulka, dal) get "log again" from history. This is the most-used path.
 - Health Connect write: set `name`, `mealType` (default from time of day), start/end time, and all non-null nutrients. Keep the returned record ID in history so "delete" also deletes it from Health Connect.
 - API key: user pastes it on the Settings screen once. Store encrypted. Never commit it. Never put it in `BuildConfig`.
 - Offline: barcode scan works; lookup queues are not in v1. Show a clear error and a retry button.
@@ -87,7 +112,7 @@ data class NutritionEstimate(
 ## 6. Design
 
 - Dark and light themes from Material 3 dynamic color. No custom gradients, no emoji icons.
-- Home = camera, with a 3-way switch: Barcode / Meal / Label.
+- Home = three large choices: Barcode / Camera / Upload. Context field on each capture screen.
 - One primary action per screen. Numbers in a tabular font.
 - Every error says what happened and what to do next.
 
@@ -96,8 +121,8 @@ data class NutritionEstimate(
 1. Skeleton: Compose app, theme, navigation, CI builds a debug APK.
 2. Health Connect: permission flow + write a hard-coded record. Confirm it shows in Google Health and Samsung Health. **Gate: if Samsung Health does not show it, stop and decide.**
 3. Barcode: CameraX + ML Kit + Open Food Facts + Review + save.
-4. Label photo: Gemini label reading into the same Review screen.
-5. Meal photo: Gemini meal estimate.
+4. Camera + Upload with Label mode: Gemini label reading into the same Review screen.
+5. Meal mode (camera + upload) with India prompt and component list.
 6. History: Room, log again, delete (also from Health Connect).
 7. Polish: icons, empty states, error states, signed release APK.
 
