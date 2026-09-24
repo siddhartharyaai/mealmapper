@@ -31,6 +31,9 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Every current Samsung/Pixel phone is arm64. Dropping other chip types keeps the
+            // ML Kit barcode model from multiplying the download size by four.
+            ndk { abiFilters += "arm64-v8a" }
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
