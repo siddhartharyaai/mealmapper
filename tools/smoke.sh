@@ -139,7 +139,12 @@ run() {
   adb shell input keyevent 111; sleep 1   # hide the keyboard
   adb shell screencap -p /sdcard/search.png; adb pull /sdcard/search.png "$OUT/$label-search.png" >/dev/null
   if crashed; then echo "CRASH on Search ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  tap_contains "Chapati/Roti" || return 1
+  found=""
+  for _ in 1 2 3 4; do
+    tap_contains "Chapati/Roti" && { found=1; break; }
+    swipe_pct 80 45; sleep 1
+  done
+  [ -n "$found" ] || { show_screen; return 1; }
   sleep 4
   if crashed; then echo "CRASH on databank Review ($label)"; cat "$OUT/crash.txt"; return 1; fi
   on_screen "Nutrition facts" || return 1
