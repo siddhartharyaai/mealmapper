@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,9 +46,29 @@ fun MealPicker(
     onChange: (MealSlot) -> Unit,
     day: LocalDate = LocalDate.now(),
     onDay: ((LocalDate) -> Unit)? = null,
+    /** One line ("Today · Dinner · Change") that opens the full picker; for screens that need the room. */
+    compact: Boolean = false,
 ) {
     val today = LocalDate.now()
     var pickingDate by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(!compact) }
+
+    if (!expanded) {
+        val dayText = when (day) {
+            today -> "Today"
+            today.minusDays(1) -> "Yesterday"
+            else -> day.format(DAY_LABEL)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "$dayText · ${slot.label}",
+                style = MaterialTheme.typography.titleSmall,
+                color = if (day != today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(onClick = { expanded = true }) { Text("Change") }
+        }
+        return
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (onDay != null) {

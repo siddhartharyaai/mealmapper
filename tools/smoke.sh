@@ -136,13 +136,15 @@ run() {
   sleep 3
   tap_text "Food" || return 1
   adb shell input text roti; sleep 4
-  adb shell input keyevent 111; sleep 1   # hide the keyboard
+  # Hide the keyboard: Back closes it only when it is showing (otherwise Back would leave the screen).
+  adb shell dumpsys input_method | grep -q "mInputShown=true" && adb shell input keyevent 4
+  sleep 1
   adb shell screencap -p /sdcard/search.png; adb pull /sdcard/search.png "$OUT/$label-search.png" >/dev/null
   if crashed; then echo "CRASH on Search ($label)"; cat "$OUT/crash.txt"; return 1; fi
   found=""
   for _ in 1 2 3 4; do
     tap_contains "Chapati/Roti" && { found=1; break; }
-    swipe_pct 80 45; sleep 1
+    swipe_pct 45 80; sleep 1   # best match is at the top of the list
   done
   [ -n "$found" ] || { show_screen; return 1; }
   sleep 4

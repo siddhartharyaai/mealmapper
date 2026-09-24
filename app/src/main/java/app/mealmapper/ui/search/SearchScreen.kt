@@ -60,7 +60,7 @@ fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: Stri
                 TextButton(onClick = onBack) { Text("Back") }
                 Text("Search foods", style = MaterialTheme.typography.titleLarge)
             }
-            MealPicker(slot, slotReason, { slot = it; slotReason = SlotReason.CHOSEN }, day, { day = it })
+            MealPicker(slot, slotReason, { slot = it; slotReason = SlotReason.CHOSEN }, day, { day = it }, compact = true)
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it.take(60) },
