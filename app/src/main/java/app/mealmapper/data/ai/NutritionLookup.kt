@@ -10,19 +10,23 @@ sealed interface LookupOutcome {
 }
 
 /**
- * AI jobs, all limited to reading, never estimating:
+ * AI jobs. Packaged food is read, never estimated; meals are estimates and always shown as such.
  * - web: find the product's printed nutrition table on real web pages (Gemini with Google Search).
+ * - meal: estimate a plate of food from a photo and/or the eater's words.
  * - identify: read brand, variant and pack size from a photo of the pack front (vision model).
  * - label: copy the nutrition table from a photo of the pack (vision model).
  */
 class NutritionLookup(private val gemini: GeminiClient) {
 
     suspend fun web(barcode: String?, knownName: String?, note: String, frontPhoto: ByteArray?): LookupOutcome {
-        // The search system reads no images, so a pack-front photo is first turned into an exact product name.
+        // The search tool reads no images, so a pack-front photo is first turned into an exact product name.
         val seen = frontPhoto?.let { identify(it) }
         val name = seen ?: knownName
+        if (frontPhoto != null && seen == null && knownName == null) {
+            return LookupOutcome.NotFound("Could not read the brand and product name from the photo. Take it closer, or photograph the label.")
+        }
         if (name == null && barcode == null) {
-            return LookupOutcome.NotFound("Could not read the product name from the photo. Photograph the label instead.")
+            return LookupOutcome.NotFound("No product name or barcode to search for. Photograph the pack front or the label.")
         }
         val clues = buildList {
             seen?.let { add("Product as printed on the pack front: $it") }
@@ -30,24 +34,46 @@ class NutritionLookup(private val gemini: GeminiClient) {
             barcode?.let { add("Barcode (EAN): $it") }
             if (note.isNotBlank()) add("User note: $note")
         }.joinToString("\n")
-        val reply = gemini.webSearch(WEB_PROMPT.replace("{CLUES}", clues))
+        val what = name ?: "barcode $barcode"
 
-        // Hard rule: numbers only when the search actually returned pages. Otherwise it could be the model's memory.
-        if (reply.sites.isEmpty()) {
-            return LookupOutcome.NotFound("The web search returned no pages for this product, so no numbers are shown.")
+        // Step 1: search and report in plain prose. A JSON-only answer tends to come back without citations,
+        // which is why 0.6.0 said "no pages" even when the search had worked.
+        val research = gemini.webSearch(RESEARCH_PROMPT.replace("{CLUES}", clues))
+        if (!research.searched && research.sites.isEmpty()) {
+            return LookupOutcome.NotFound(
+                "Google Search did not run for $what. In Google AI Studio check that billing is on for this key's project.",
+            )
         }
-        val ai = AiParsing.nutrition(reply.text)
+        if (research.text.contains("NOT_FOUND") && research.text.length < 400) {
+            return LookupOutcome.NotFound("Searched the web for $what, but no page shows its nutrition table.")
+        }
+        // Cited pages first; if Google did not attach citations, the pages the answer names.
+        val sites = research.sites.ifEmpty { AiParsing.sitesInText(research.text) }
+
+        // Step 2: turn the report into the app's JSON. Text only, no search: it can only copy what step 1 found.
+        val ai = AiParsing.nutrition(gemini.text(EXTRACT_PROMPT.replace("{REPORT}", research.text)).text)
         if (!ai.found || ai.per100 == null) {
-            return LookupOutcome.NotFound(ai.note ?: "No page showed this product's nutrition table.")
+            return LookupOutcome.NotFound(ai.note ?: "Searched the web for $what, but no page shows its nutrition table.")
         }
         if (ai.matchConfidence == "uncertain") {
-            return LookupOutcome.NotFound("Found pages, but not for this exact variant. Photograph the label instead.")
+            return LookupOutcome.NotFound("Found pages for $what, but not for this exact variant. Photograph the label instead.")
         }
         return LookupOutcome.Found(
             product = ai.toProduct(barcode, name),
-            source = ProductSource.Web(reply.sites, ai.sourcesAgreeing),
+            source = ProductSource.Web(sites, ai.sourcesAgreeing, cited = research.sites.isNotEmpty()),
             problems = AiParsing.problems(ai),
         )
+    }
+
+    /** Estimates a plate of food from a photo and/or the user's words. Always labelled as an estimate. */
+    suspend fun meal(photo: ByteArray?, note: String, restaurant: Boolean): List<AiParsing.MealItem> {
+        val prompt = MEAL_PROMPT
+            .replace("{PLACE}", if (restaurant) RESTAURANT else HOME)
+            .replace("{NOTE}", note.ifBlank { "none" })
+        val reply = gemini.vision(prompt, listOfNotNull(photo))
+        val items = AiParsing.meal(reply.text)
+        if (items.isEmpty()) throw AiException("No food recognised. Try a clearer photo, or type what you ate.")
+        return items
     }
 
     /** "Britannia Nutri Choice Digestive, 125 g" from a pack-front photo, or null if unreadable. */
@@ -94,21 +120,62 @@ class NutritionLookup(private val gemini: GeminiClient) {
   "note": short string (what you found, or why not found)
 }"""
 
-        const val WEB_PROMPT = """You find the printed nutrition table of one packaged food product sold in India.
+        const val RESEARCH_PROMPT = """Find the printed nutrition table of one packaged food or drink sold in India.
 
 Product clues:
 {CLUES}
 
-Rules:
-1. Use web search: the manufacturer's site first, then Indian retailers (BigBasket, Blinkit, Zepto, Swiggy Instamart, JioMart, Amazon.in, Flipkart), then Open Food Facts.
-2. Match the EXACT variant, flavour and pack size. Brands like Britannia Nutri Choice, Parle, ITC, Haldiram's have many variants with different values. If you cannot confirm the variant, set match_confidence "uncertain".
-3. Copy numbers exactly as a page shows them. Never estimate, never use typical values for similar products. If no page shows the table, set "found": false.
-4. Values per 100 g (or per 100 ml for drinks). If a page shows only per serving, convert using the serving size and say so in "note".
-5. Energy in kcal. If only kJ is shown, divide by 4.184. Sodium in mg (salt g x 400 = sodium mg).
-6. Count how many independent pages agree within 10% in "sources_agreeing".
+Search the web: the manufacturer's site first, then Indian retailers (BigBasket, Blinkit, Zepto, Swiggy Instamart,
+JioMart, Amazon.in, Flipkart), then Open Food Facts. Search by product name; the barcode alone rarely finds pages.
 
-Reply with ONLY this JSON object, no other text:
+Write a short plain-text report:
+- The exact product, variant/flavour and pack size each page is about.
+- The nutrition values each page shows, copied exactly with their units and basis (per 100 g, per 100 ml or per serving).
+- Serving size and net quantity if shown.
+- The web address of each page.
+Copy numbers only from pages. Never estimate or use typical values for similar products.
+If no page shows this product's nutrition values, reply with only: NOT_FOUND"""
+
+        const val EXTRACT_PROMPT = """Below is a research report about one packaged food product sold in India.
+Turn it into JSON. Use ONLY numbers written in the report. Do not add, estimate or correct anything.
+
+Rules:
+- Values per 100 g (or per 100 ml for drinks). If the report has only per-serving values, convert with the serving size and say so in "note".
+- Energy in kcal; if only kJ, divide by 4.184. Sodium in mg (salt g x 400 = sodium mg).
+- sources_agreeing: how many different pages in the report show values within 10% of each other.
+- match_confidence "uncertain" if the pages may be a different variant, flavour or pack than the clues.
+- If the report has no nutrition values, set "found": false.
+
+Report:
+{REPORT}
+
+Reply with ONLY this JSON object:
 $SCHEMA"""
+
+        const val HOME = "Home-cooked food from a Mumbai household kitchen, made by a home cook. Moderate oil; phulka/roti usually without ghee unless visible."
+        const val RESTAURANT = "Restaurant or takeaway food in Mumbai. Restaurants use more oil, butter, cream and larger portions than home cooking."
+
+        const val MEAL_PROMPT = """Estimate the nutrition of the food in this meal. The eater is an adult in Mumbai, India, eggetarian (no meat or fish).
+Where it is from: {PLACE}
+What the eater says (this is the truth; it overrides what you see): {NOTE}
+
+Rules:
+1. List each separate food: e.g. dal, rice, phulka, sabzi, raita, salad, pickle, sweet, drink.
+   If there is no photo, use only the eater's words.
+2. Portions: use the eater's counts and sizes exactly. Otherwise estimate from the photo using Indian references:
+   katori 150 ml, steel plate 28 cm, phulka 30-35 g, chapati 40 g, paratha 70-90 g, cooked rice 1 katori = 150 g,
+   dal 1 katori = 150 g, chai cup 150 ml, glass 250 ml.
+3. Values from standard Indian food composition data (IFCT 2017 / NIN) for the cooked dish, including its cooking oil or ghee.
+   Visible extra ghee, butter or oil on top is a separate item.
+4. kcal must agree with macros: protein x4 + carbs x4 + fat x9, within 10%.
+5. kcal_low and kcal_high: a realistic range for this item given what cannot be seen (oil, hidden portions).
+6. assumption: one short line with what you assumed (e.g. "1 tsp oil in tadka", "2 phulkas under the dal").
+7. Do not invent items you cannot see or that the eater did not mention.
+
+Reply with ONLY this JSON:
+{"items": [{"name": "Dal tadka", "grams": 150, "kcal": n, "protein_g": n, "carbs_g": n, "fat_g": n,
+  "saturated_fat_g": n, "sugar_g": n, "fiber_g": n, "sodium_mg": n, "kcal_low": n, "kcal_high": n, "assumption": "..."}]}
+Use grams for every item, including drinks (1 ml = 1 g). If you see no food, reply {"items": []}"""
 
         const val IDENTIFY_PROMPT = """The photo shows the front of a packaged food or drink sold in India.
 Reply with ONE line: brand, product name, variant/flavour and net quantity exactly as printed,

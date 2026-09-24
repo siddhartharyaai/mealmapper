@@ -37,18 +37,18 @@ private object Routes {
     const val SETUP = "setup"
     const val SETTINGS = "settings"
     const val PHOTO = "photo?mode={mode}&kind={kind}&code={code}&name={name}"
-    const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}"
+    const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}&place={place}"
 
     fun photo(mode: PhotoMode, kind: PhotoKind, code: String? = null, name: String? = null) =
         "photo?mode=${mode.name}&kind=${kind.name}&code=${enc(code)}&name=${enc(name)}"
 
-    fun review(kind: String, code: String? = null, note: String = "", photo: Uri? = null, name: String? = null) =
-        "review?kind=$kind&code=${enc(code)}&note=${enc(note)}&photo=${enc(photo?.toString())}&name=${enc(name)}"
+    fun review(kind: String, code: String? = null, note: String = "", photo: Uri? = null, name: String? = null, place: String = "") =
+        "review?kind=$kind&code=${enc(code)}&note=${enc(note)}&photo=${enc(photo?.toString())}&name=${enc(name)}&place=$place"
 
     private fun enc(v: String?) = Uri.encode(v.orEmpty())
 
     val photoArgs = listOf("mode", "kind", "code", "name").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
-    val reviewArgs = listOf("kind", "code", "note", "photo", "name").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
+    val reviewArgs = listOf("kind", "code", "note", "photo", "name", "place").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
 }
 
 private fun NavBackStackEntry.arg(name: String): String? = arguments?.getString(name)?.takeIf { it.isNotEmpty() }
@@ -74,8 +74,8 @@ class MainActivity : ComponentActivity() {
                             savedMessage = savedMessage,
                             onMessageShown = { savedMessage = null },
                             onBarcode = { nav.navigate(Routes.SCAN) },
-                            onCamera = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.LABEL)) },
-                            onUpload = { nav.navigate(Routes.photo(PhotoMode.UPLOAD, PhotoKind.LABEL)) },
+                            onCamera = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MEAL)) },
+                            onUpload = { nav.navigate(Routes.photo(PhotoMode.UPLOAD, PhotoKind.MEAL)) },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )
@@ -106,9 +106,14 @@ class MainActivity : ComponentActivity() {
                             hasAiKey = hasAiKey,
                             onBack = { nav.popBackStack() },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
-                            onAnalyse = { kind, photo, note ->
-                                val reviewKind = if (kind == PhotoKind.LABEL) "label" else "web"
-                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photo = photo, name = name))
+                            onAnalyse = { kind, photo, note, restaurant ->
+                                val reviewKind = when (kind) {
+                                    PhotoKind.MEAL -> "meal"
+                                    PhotoKind.LABEL -> "label"
+                                    PhotoKind.PACK -> "web"
+                                }
+                                val place = if (restaurant) "restaurant" else "home"
+                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photo = photo, name = name, place = place))
                             },
                         )
                     }
@@ -120,6 +125,7 @@ class MainActivity : ComponentActivity() {
                         val request = when (entry.arg("kind")) {
                             "label" -> ReviewRequest.Label(photo!!, note, code, name)
                             "web" -> ReviewRequest.Web(photo, note, code, name)
+                            "meal" -> ReviewRequest.Meal(photo, note, restaurant = entry.arg("place") == "restaurant")
                             else -> ReviewRequest.Barcode(code.orEmpty(), note)
                         }
                         val vm: ReviewViewModel = viewModel(
@@ -132,8 +138,8 @@ class MainActivity : ComponentActivity() {
                                 savedMessage = message
                                 nav.popBackStack(Routes.HOME, inclusive = false)
                             },
-                            onPhotographLabel = { barcode, productName ->
-                                nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.LABEL, barcode, productName))
+                            onPhotograph = { kind, barcode, productName ->
+                                nav.navigate(Routes.photo(PhotoMode.CAMERA, kind, barcode, productName))
                             },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
                         )

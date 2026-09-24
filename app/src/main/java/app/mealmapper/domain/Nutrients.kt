@@ -28,6 +28,20 @@ data class Nutrients(
         sodiumMg = sodiumMg?.times(factor),
     )
 
+    /** Sum of two portions. An optional nutrient stays null only when both sides lack it. */
+    operator fun plus(o: Nutrients): Nutrients = Nutrients(
+        energyKcal = energyKcal + o.energyKcal,
+        proteinG = proteinG + o.proteinG,
+        carbsG = carbsG + o.carbsG,
+        fatG = fatG + o.fatG,
+        saturatedFatG = sum(saturatedFatG, o.saturatedFatG),
+        sugarG = sum(sugarG, o.sugarG),
+        fiberG = sum(fiberG, o.fiberG),
+        sodiumMg = sum(sodiumMg, o.sodiumMg),
+    )
+
+    private fun sum(a: Double?, b: Double?): Double? = if (a == null && b == null) null else (a ?: 0.0) + (b ?: 0.0)
+
     /**
      * True when the stated energy and the energy from macros (4/4/9 kcal per g) differ by more
      * than 15%. This catches wrong labels, wrong OCR and wrong AI output. Very small amounts are

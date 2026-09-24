@@ -12,7 +12,13 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /** A model's answer plus the web sites its search tool actually visited (empty when no search ran). */
-data class AiReply(val text: String, val sites: List<String>, val model: String = "")
+data class AiReply(
+    val text: String,
+    val sites: List<String>,
+    val model: String = "",
+    /** True when Google Search actually ran (a google_search_call step), even if nothing was cited. */
+    val searched: Boolean = false,
+)
 
 /** Nutrition facts as the model reported them, before the app's own checks. */
 data class AiNutrition(
@@ -54,8 +60,60 @@ object AiParsing {
             .filter { it.str("type") == "url_citation" }
         val sites = citations.mapNotNull { c -> c.str("title")?.removePrefix("www.") ?: c.str("url")?.let(::site) }
             .distinct()
-        return AiReply(stripThinking(text), sites, root.str("model").orEmpty())
+        val searched = steps.any { it.str("type") == "google_search_call" }
+        return AiReply(stripThinking(text), sites, root.str("model").orEmpty(), searched)
     }
+
+    /** Items the AI sees on a plate. Estimates, never presented as measured values. */
+    data class MealItem(
+        val name: String,
+        val grams: Double,
+        val per100: Nutrients,
+        val lowKcal: Double?,
+        val highKcal: Double?,
+        val assumption: String?,
+    )
+
+    /**
+     * Parses the meal JSON. The model reports totals for its estimated portion; we convert to per-100 g
+     * so the user's gram edits rescale every nutrient consistently. Items without grams or energy are dropped.
+     */
+    fun meal(text: String): List<MealItem> {
+        val raw = lastJsonObject(text) ?: throw AiException("The AI's answer had no readable data in it.")
+        val items = (json.parseToJsonElement(raw).jsonObject["items"] as? JsonArray).orEmpty()
+        return items.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            val name = o.str("name") ?: return@mapNotNull null
+            val grams = o.num("grams")?.takeIf { it > 0 } ?: return@mapNotNull null
+            val kcal = o.num("kcal") ?: return@mapNotNull null
+            val f = 100.0 / grams
+            MealItem(
+                name = name,
+                grams = grams,
+                per100 = Nutrients(
+                    energyKcal = kcal * f,
+                    proteinG = (o.num("protein_g") ?: 0.0) * f,
+                    carbsG = (o.num("carbs_g") ?: 0.0) * f,
+                    fatG = (o.num("fat_g") ?: 0.0) * f,
+                    saturatedFatG = o.num("saturated_fat_g")?.times(f),
+                    sugarG = o.num("sugar_g")?.times(f),
+                    fiberG = o.num("fiber_g")?.times(f),
+                    sodiumMg = o.num("sodium_mg")?.times(f),
+                ),
+                lowKcal = o.num("kcal_low"),
+                highKcal = o.num("kcal_high"),
+                assumption = o.str("assumption"),
+            )
+        }
+    }
+
+    /** Web sites named in the answer text (used only when Google attached no citations). */
+    fun sitesInText(text: String): List<String> =
+        Regex("""https?://[^\s)\]>"']+""").findAll(text).mapNotNull { site(it.value) }.distinct().take(5).toList()
+            .ifEmpty {
+                Regex("""\b(?:www\.)?([a-z0-9-]+\.(?:com|in|co\.in|org|net))\b""", RegexOption.IGNORE_CASE)
+                    .findAll(text).map { it.groupValues[1].lowercase() }.distinct().take(5).toList()
+            }
 
     /** Reasoning models may put their thinking in <think> tags before the answer. */
     fun stripThinking(text: String): String = text.replace(Regex("(?s)<think>.*?</think>"), "").trim()

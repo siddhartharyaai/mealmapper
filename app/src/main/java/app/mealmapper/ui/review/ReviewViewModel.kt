@@ -17,7 +17,6 @@ import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.NutritionEntry
 import app.mealmapper.domain.Nutrients
 import app.mealmapper.domain.ProductSource
-import app.mealmapper.domain.defaultPortion
 import app.mealmapper.domain.mealSlotFor
 import app.mealmapper.domain.parsePortion
 import app.mealmapper.ui.common.fmt
@@ -25,6 +24,7 @@ import app.mealmapper.ui.photo.ImageTools
 import java.time.Instant
 import java.time.LocalTime
 import java.util.UUID
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +41,49 @@ sealed interface ReviewRequest {
     data class Barcode(val code: String, override val note: String) : ReviewRequest
     data class Label(val photo: Uri, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
     data class Web(val photo: Uri?, override val note: String, val barcode: String?, val name: String?) : ReviewRequest
+    /** A plate of food: photo and/or the user's words. [photo] is null for "type what you ate". */
+    data class Meal(val photo: Uri?, override val note: String, val restaurant: Boolean) : ReviewRequest
+}
+
+/** One food on a plate. Values are AI estimates; the user can change the grams or leave the item out. */
+data class MealRow(
+    val name: String,
+    val gramsText: String,
+    val per100: Nutrients,
+    val estimatedGrams: Double,
+    val lowKcal: Double?,
+    val highKcal: Double?,
+    val assumption: String?,
+    val include: Boolean = true,
+) {
+    val grams: Double? get() = gramsText.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it <= ReviewForm.MAX_AMOUNT }
+    val nutrients: Nutrients? get() = grams?.let { per100.scaled(it / 100.0) }
+
+    /** The AI's kcal range, scaled to the grams now entered. */
+    val range: Pair<Double, Double>?
+        get() {
+            val g = grams ?: return null
+            val f = g / estimatedGrams
+            return if (lowKcal != null && highKcal != null && lowKcal <= highKcal) lowKcal * f to highKcal * f else null
+        }
+}
+
+data class MealForm(
+    val rows: List<MealRow>,
+    val slot: MealSlot,
+    val note: String,
+    val restaurant: Boolean,
+    val saving: Boolean = false,
+    val error: String? = null,
+) {
+    private val included get() = rows.filter { it.include }
+    val total: Nutrients? get() = included.mapNotNull { it.nutrients }.reduceOrNull(Nutrients::plus)
+    val range: Pair<Double, Double>?
+        get() {
+            val all = included.map { it.range ?: it.nutrients?.let { n -> n.energyKcal to n.energyKcal } ?: return null }
+            return if (all.isEmpty()) null else all.sumOf { it.first } to all.sumOf { it.second }
+        }
+    val canSave: Boolean get() = !saving && included.isNotEmpty() && included.all { it.grams != null }
 }
 
 enum class NutrientField(val label: String, val unit: String, val required: Boolean) {
@@ -111,6 +154,7 @@ sealed interface ReviewState {
     ) : ReviewState
     data class Failed(val message: String) : ReviewState
     data class Ready(val form: ReviewForm) : ReviewState
+    data class Meal(val form: MealForm) : ReviewState
     data class Saved(val message: String) : ReviewState
 }
 
@@ -128,6 +172,7 @@ class ReviewViewModel(
         is ReviewRequest.Barcode -> request.code
         is ReviewRequest.Label -> request.barcode
         is ReviewRequest.Web -> request.barcode
+        is ReviewRequest.Meal -> null
     }
 
     init {
@@ -140,6 +185,7 @@ class ReviewViewModel(
                 is ReviewRequest.Barcode -> barcodeFlow(request.code)
                 is ReviewRequest.Label -> labelFlow(request.photo)
                 is ReviewRequest.Web -> webFlow(request.photo)
+                is ReviewRequest.Meal -> mealFlow(request)
             }
         }
     }
@@ -193,6 +239,70 @@ class ReviewViewModel(
         }
     }
 
+    private suspend fun mealFlow(meal: ReviewRequest.Meal) {
+        _state.value = ReviewState.Loading(if (meal.photo != null) "Looking at your meal…" else "Working out your meal…")
+        val items = runLookup { c.nutritionLookup.meal(meal.photo?.let { jpeg(it) }, meal.note, meal.restaurant) } ?: return
+        _state.value = ReviewState.Meal(
+            MealForm(
+                rows = items.map {
+                    MealRow(it.name, it.grams.roundToInt().toString(), it.per100, it.grams, it.lowKcal, it.highKcal, it.assumption)
+                },
+                slot = mealSlotFor(LocalTime.now()),
+                note = meal.note.take(ReviewForm.MAX_NOTE),
+                restaurant = meal.restaurant,
+            ),
+        )
+    }
+
+    private fun editMeal(block: (MealForm) -> MealForm) = _state.update {
+        if (it is ReviewState.Meal && !it.form.saving) ReviewState.Meal(block(it.form).copy(error = null)) else it
+    }
+
+    private fun editRow(i: Int, block: (MealRow) -> MealRow) =
+        editMeal { f -> f.copy(rows = f.rows.mapIndexed { j, r -> if (j == i) block(r) else r }) }
+
+    fun setRowGrams(i: Int, v: String) = editRow(i) { it.copy(gramsText = v.filter { c -> c.isDigit() || c == '.' }.take(6)) }
+    fun toggleRow(i: Int) = editRow(i) { it.copy(include = !it.include) }
+    fun setMealSlot(v: MealSlot) = editMeal { it.copy(slot = v) }
+
+    /** Each food is its own Health Connect entry, so Google Health lists dal, rice and phulka separately. */
+    fun saveMeal() {
+        val form = (_state.value as? ReviewState.Meal)?.form ?: return
+        if (!form.canSave) return
+        val now = Instant.now()
+        val tag = if (form.restaurant) "restaurant est." else "est."
+        val entries = form.rows.filter { it.include }.mapIndexed { i, row ->
+            NutritionEntry(
+                clientId = UUID.randomUUID().toString(),
+                name = "${row.name} · ${row.grams!!.roundToInt()} g · $tag",
+                slot = form.slot,
+                // Seconds apart so entries never share a start time.
+                eatenAt = now.plusSeconds(i.toLong()),
+                nutrients = row.nutrients!!,
+            )
+        }
+        _state.value = ReviewState.Meal(form.copy(saving = true))
+        viewModelScope.launch {
+            var written = 0
+            runCatching { entries.forEach { c.healthConnect.write(it); written++ } }
+                .onSuccess {
+                    val kcal = entries.sumOf { it.nutrients.energyKcal }
+                    _state.value = ReviewState.Saved("Saved meal: ${entries.size} items, ${Math.round(kcal)} kcal")
+                }
+                .onFailure { e ->
+                    // Keep only the items not yet written, so a retry does not log anything twice.
+                    val left = form.rows.filter { it.include }.drop(written)
+                    _state.value = ReviewState.Meal(
+                        form.copy(
+                            rows = left + form.rows.filter { !it.include },
+                            saving = false,
+                            error = "Saved $written of ${entries.size}. Health Connect said: ${e.message ?: e.javaClass.simpleName}",
+                        ),
+                    )
+                }
+        }
+    }
+
     private suspend fun <T> runLookup(block: suspend () -> T): T? = try {
         block()
     } catch (e: CancellationException) {
@@ -219,7 +329,8 @@ class ReviewViewModel(
                 source = source,
                 name = listOfNotNull(product.brand?.takeUnless { product.name.contains(it, ignoreCase = true) }, product.name)
                     .joinToString(" "),
-                amountText = parsed?.amount?.fmt() ?: defaultPortion(product).fmt(),
+                // Blank until the user says how much they ate, unless their note already did.
+                amountText = parsed?.amount?.fmt().orEmpty(),
                 amountFromNote = parsed?.explanation,
                 slot = mealSlotFor(LocalTime.now()),
                 note = request.note.take(ReviewForm.MAX_NOTE),

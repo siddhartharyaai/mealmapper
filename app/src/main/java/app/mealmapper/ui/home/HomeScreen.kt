@@ -108,8 +108,8 @@ fun HomeScreen(
 
             Text("Log what you ate", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
             CaptureOption("Scan barcode", "Packaged food. Open Food Facts, then the web.", enabled = true, onClick = onBarcode)
-            CaptureOption("Take a photo", "Nutrition label or pack front. Meals in phase 5.", enabled = true, onClick = onCamera)
-            CaptureOption("Upload a photo", "From your gallery. Label or pack front.", enabled = true, onClick = onUpload)
+            CaptureOption("Take a photo", "A meal, a nutrition label or a pack front.", enabled = true, onClick = onCamera)
+            CaptureOption("Upload a photo", "From your gallery. Meal, label or pack front.", enabled = true, onClick = onUpload)
         }
     }
 }

@@ -110,4 +110,34 @@ class AiParsingTest {
 
     @Test fun lastJsonObjectSkipsStrayBraces() =
         assertEquals("""{"a":1}""", AiParsing.lastJsonObject("snippet {not json} then {\"a\":1}"))
+
+    @Test fun searchRanWithoutCitations() {
+        val body = """{"steps":[{"type":"google_search_call","arguments":{"queries":["x"]}},
+            {"type":"model_output","content":[{"type":"text","text":"{}"}]}]}"""
+        val r = AiParsing.interaction(body)
+        assertTrue(r.searched)
+        assertTrue(r.sites.isEmpty())
+    }
+
+    @Test fun mealItemsScaleToPer100() {
+        val text = """{"items":[
+            {"name":"Dal tadka","grams":180,"kcal":198,"protein_g":10.8,"carbs_g":25.2,"fat_g":5.4,"kcal_low":160,"kcal_high":240,"assumption":"1 tsp ghee tadka"},
+            {"name":"Phulka","grams":60,"kcal":170,"protein_g":5.4,"carbs_g":33,"fat_g":1.8},
+            {"name":"no grams","kcal":10}]}"""
+        val items = AiParsing.meal(text)
+        assertEquals(2, items.size)
+        assertEquals(110.0, items[0].per100.energyKcal, 0.01)
+        assertEquals(198.0, items[0].per100.scaled(1.8).energyKcal, 0.01)
+        assertEquals("1 tsp ghee tadka", items[0].assumption)
+        assertNull(items[1].lowKcal)
+    }
+
+    @Test fun sitesInTextFromUrlsThenBareDomains() {
+        assertEquals(
+            listOf("bigbasket.com", "snackible.com"),
+            AiParsing.sitesInText("See https://www.bigbasket.com/pd/123/ and (https://snackible.com/products/x)."),
+        )
+        assertEquals(listOf("blinkit.com"), AiParsing.sitesInText("Blinkit.com lists 420 kcal per 100 g."))
+        assertTrue(AiParsing.sitesInText("no pages here").isEmpty())
+    }
 }

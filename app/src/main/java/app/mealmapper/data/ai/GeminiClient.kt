@@ -33,6 +33,9 @@ class GeminiClient(private val settings: AiSettings) {
     suspend fun vision(prompt: String, jpegs: List<ByteArray>): AiReply =
         withFallback { model -> interact(model, prompt, jpegs, search = false) }
 
+    /** Plain text in, text out. No search, no images. */
+    suspend fun text(prompt: String): AiReply = vision(prompt, emptyList())
+
     /** Answers with Google Search. Sources come back as url_citation annotations. */
     suspend fun webSearch(prompt: String): AiReply =
         withFallback { model -> interact(model, prompt, emptyList(), search = true) }

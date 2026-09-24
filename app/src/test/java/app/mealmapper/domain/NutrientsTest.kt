@@ -21,4 +21,12 @@ class NutrientsTest {
     @Test fun kcalTypedAsKjIsCaught() = assertTrue(biscuit.copy(energyKcal = 1900.0).energyLooksWrong())
 
     @Test fun tinyAmountsAreNotChecked() = assertFalse(Nutrients(2.0, 0.0, 0.0, 0.0).energyLooksWrong())
+
+    @Test fun plusKeepsNullOnlyWhenBothNull() {
+        val sum = biscuit + Nutrients(100.0, 1.0, 2.0, 3.0, fiberG = 4.0)
+        assertEquals(554.0, sum.energyKcal, 0.001)
+        assertEquals(25.5, sum.sugarG!!, 0.001)
+        assertEquals(4.0, sum.fiberG!!, 0.001)
+        assertNull(sum.sodiumMg)
+    }
 }

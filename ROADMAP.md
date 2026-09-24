@@ -74,7 +74,8 @@ Build
 - Label reading: Gemini copies the printed nutrition table (per 100 g and per serving; English/Hindi).
   The app checks: calories vs macros, per-serving vs per-100 g, physical limits. Failures are highlighted.
 - Barcode "not found" -> one tap to photograph the label.
-- Meal photos are not in this phase: a meal photo gets "Meal photos come in phase 5".
+- 0.7.0: web lookup is two steps (search and report with citations, then extract JSON without search). Review shows
+  the nutrition facts first; the amount eaten is blank until the user enters it (or the note gives it).
 
 Test (20 min)
 1. 10 Indian packs, including ones Open Food Facts did not know. Photograph each label.
@@ -97,6 +98,11 @@ Test (20 min)
 Pass: 18 of 20 found; no absurd values (e.g. poori is no longer 738 kcal/100 g).
 
 ## Phase 5: Large
+
+Shipped first in 0.7.0 (user asked for the full app fast): meal photo or typed meal -> Gemini lists each item with
+grams, kcal, macros, a kcal range and its assumption, using IFCT-style values. Home / Restaurant switch. Every item is
+editable, can be left out, and is saved as its own Health Connect entry marked "est.". Labelled as an estimate on screen.
+Still to come: databank matching (phase 4), calibration, house versions.
 
 Build
 - Meal photos: recognise -> up to 2 tap questions -> match to databank -> compute. No invented numbers.
