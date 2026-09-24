@@ -46,6 +46,17 @@ PY
   adb shell input tap $(cat "$OUT/tap.txt")
 }
 
+tap_home() {
+  # Home scrolls: go to the top, then look for the tile, scrolling down a little at a time.
+  for _ in 1 2; do adb shell input swipe 500 700 500 1600 200; done
+  sleep 1
+  for _ in 1 2 3 4; do
+    tap_text "$1" && return 0
+    adb shell input swipe 500 1500 500 1000 300; sleep 1
+  done
+  return 1
+}
+
 on_screen() {
   adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
   adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
@@ -89,20 +100,20 @@ run() {
   sleep 4
   if crashed; then echo "CRASH on Settings ($label)"; cat "$OUT/crash.txt"; return 1; fi
   adb shell input keyevent 4; sleep 3
-  tap_text "Upload a photo" || return 1
+  tap_home "Upload a photo" || return 1
   sleep 4
   if crashed; then echo "CRASH on Upload ($label)"; cat "$OUT/crash.txt"; return 1; fi
   adb shell input keyevent 4; sleep 3
-  tap_text "Take a photo" || return 1
+  tap_home "Take a photo" || return 1
   sleep 4
   if crashed; then echo "CRASH on Take a photo ($label)"; cat "$OUT/crash.txt"; return 1; fi
   adb shell input keyevent 4; sleep 3
-  tap_text "History" || return 1
+  tap_home "History" || return 1
   sleep 4
   if crashed; then echo "CRASH on History ($label)"; cat "$OUT/crash.txt"; return 1; fi
   # Offline databank: search "roti", open it, set 2 rotis with the count control. No network needed.
   adb shell input keyevent 4; sleep 3
-  tap_text "Search foods" || return 1
+  tap_home "Search foods" || return 1
   sleep 3
   tap_text "Food" || return 1
   adb shell input text roti; sleep 4
@@ -122,7 +133,7 @@ run() {
   # Back to Home: Review -> Search -> Home (a keyboard may take one extra Back).
   for _ in 1 2 3; do
     adb shell input keyevent 4; sleep 3
-    tap_text "Say or type" && break
+    tap_home "Say or type" && break
   done
   [ -s "$OUT/tap.txt" ] || return 1
   sleep 3
