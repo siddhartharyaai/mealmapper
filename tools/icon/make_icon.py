@@ -1,54 +1,99 @@
 #!/usr/bin/env python3
 """
-Generates Meal Mapper's adaptive launcher icon (a top-down thali) as Android vector drawables, plus an SVG/PNG
-preview. One source of truth for all layers. Run: python3 tools/icon/make_icon.py
-Canvas 108x108 (adaptive icon); keep artwork inside the 66 dp safe circle (radius 33 around 54,54).
+Generates Meal Mapper's adaptive launcher icon as Android vector drawables plus an SVG preview:
+a gold "MM" with a measuring tape (waist tape, health teal) winding through it, on a vegetable-green gradient.
+Run: python3 tools/icon/make_icon.py
+Canvas 108x108; artwork stays inside the 66 dp safe circle (radius 33 around 54,54).
 """
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RES = ROOT / "app/src/main/res"
 
+BG_TOP, BG_BOTTOM = "#7CC45A", "#1C6B3A"          # fresh leaf green -> deep spinach green
+GOLD, GOLD_DARK = "#F6C744", "#A8741A"
+TAPE, TAPE_EDGE, TICK = "#FFFFFF", "#12A38A", "#12A38A"
 
-def circle(cx, cy, r):
-    return f"M{cx - r},{cy}a{r},{r} 0 1,0 {2 * r},0a{r},{r} 0 1,0 {-2 * r},0z"
+# Letters: two Ms drawn as thick strokes. x ranges 30-51 and 57-78, height 38-70.
+M1 = [(29.5, 69), (29.5, 40), (38.5, 56), (47.5, 40), (47.5, 69)]
+M2 = [(60.5, 69), (60.5, 40), (69.5, 56), (78.5, 40), (78.5, 69)]
+LETTER_W = 6.4
+
+# Tape: a cubic curve across the letters, like a tape around a waist.
+P0, P1, P2, P3 = (22, 64), (40, 76), (66, 40), (87, 50)
+TAPE_W = 7.6
 
 
-def ellipse(cx, cy, rx, ry):
-    return f"M{cx - rx},{cy}a{rx},{ry} 0 1,0 {2 * rx},0a{rx},{ry} 0 1,0 {-2 * rx},0z"
+def poly(points):
+    return "M" + "L".join(f"{x:.2f},{y:.2f}" for x, y in points)
 
 
-PIN = "M63,48.2c-2.6,0 -4.7,2.1 -4.7,4.6c0,3.5 4.7,8 4.7,8s4.7,-4.5 4.7,-8c0,-2.5 -2.1,-4.6 -4.7,-4.6z"
+def bez(t):
+    u = 1 - t
+    x = u**3 * P0[0] + 3 * u * u * t * P1[0] + 3 * u * t * t * P2[0] + t**3 * P3[0]
+    y = u**3 * P0[1] + 3 * u * u * t * P1[1] + 3 * u * t * t * P2[1] + t**3 * P3[1]
+    return x, y
 
-# (path, fill, stroke, stroke_width, alpha) drawn in order
+
+def bez_d(t):
+    u = 1 - t
+    dx = 3 * u * u * (P1[0] - P0[0]) + 6 * u * t * (P2[0] - P1[0]) + 3 * t * t * (P3[0] - P2[0])
+    dy = 3 * u * u * (P1[1] - P0[1]) + 6 * u * t * (P2[1] - P1[1]) + 3 * t * t * (P3[1] - P2[1])
+    n = math.hypot(dx, dy)
+    return dx / n, dy / n
+
+
+def tape_path(t0=0.0, t1=1.0, steps=60):
+    return poly([bez(t0 + (t1 - t0) * i / steps) for i in range(steps + 1)])
+
+
+def ticks():
+    """Tape marks: long every 5th, short otherwise, on one edge, evenly spaced along the curve length."""
+    samples = [bez(i / 400) for i in range(401)]
+    lengths = [0.0]
+    for a, b in zip(samples, samples[1:]):
+        lengths.append(lengths[-1] + math.dist(a, b))
+    total, step, out, k = lengths[-1], 2.8, [], 1
+    for i, L in enumerate(lengths):
+        if L >= k * step and L < total - 2:
+            t = i / 400
+            x, y = bez(t)
+            dx, dy = bez_d(t)
+            nx, ny = -dy, dx
+            edge = TAPE_W / 2 - 0.6
+            size = 3.0 if k % 5 == 0 else 1.7
+            a = (x + nx * edge, y + ny * edge)
+            b = (x + nx * (edge - size), y + ny * (edge - size))
+            out.append(f"M{a[0]:.2f},{a[1]:.2f}L{b[0]:.2f},{b[1]:.2f}")
+            k += 1
+    return "".join(out)
+
+
+# (path, fill, stroke, width, alpha)  -- strokes are round-capped
+def letters(points, color, width, dx=0.0, dy=0.0):
+    return (poly([(x + dx, y + dy) for x, y in points]), None, color, width, 1)
+
+
+# The weave: tape in front of the first M, behind the second, so it runs "through" MM.
 FOREGROUND = [
-    (circle(54, 56.5, 31), "#000000", None, 0, 0.22),            # soft shadow
-    (circle(54, 54, 31), "#F4ECDF", "#D8B26A", 2.6, 1),          # brass-rimmed plate
-    (circle(54, 54, 26.5), None, "#E7DAC2", 1.0, 1),             # inner ring
-    (circle(41.5, 44.5, 7.2), "#F2B84B", "#C9A55E", 1.5, 1),     # dal
-    (circle(54, 38.8, 7.2), "#C4502F", "#C9A55E", 1.5, 1),       # curry
-    (circle(66.5, 44.5, 7.2), "#6E9F4E", "#C9A55E", 1.5, 1),     # sabzi
-    (circle(47.5, 61, 8.6), "#E6BA70", "#C38A3E", 1.1, 1),       # roti (under)
-    (circle(44.5, 64.5, 8.6), "#D9A355", "#B97F35", 1.2, 1),     # roti (top)
-    (circle(41.8, 62.2, 1.0), "#B0722C", None, 0, 1),
-    (circle(46.6, 66.8, 1.1), "#B0722C", None, 0, 1),
-    (circle(44.0, 68.4, 0.8), "#B0722C", None, 0, 1),
-    (circle(47.8, 62.4, 0.7), "#B0722C", None, 0, 1),
-    (ellipse(63.5, 64.5, 9, 6.6), "#FFFFFF", "#E5D9C3", 1.0, 1), # rice
-    (PIN, "#1E4636", None, 0, 1),                                # map pin on the rice
-    (circle(63, 52.9, 1.6), "#F4ECDF", None, 0, 1),
+    letters(M1, "#0B3D22", LETTER_W, 0.8, 1.5),          # soft shadow
+    letters(M2, "#0B3D22", LETTER_W, 0.8, 1.5),
+    letters(M1, GOLD_DARK, LETTER_W + 1.6),              # gold edge
+    letters(M1, GOLD, LETTER_W),
+    (tape_path(), None, "#0B3D22", TAPE_W + 2.0, 1),     # tape edge
+    (tape_path(), None, TAPE_EDGE, TAPE_W + 1.1, 1),
+    (tape_path(), None, TAPE, TAPE_W - 0.5, 1),
+    (ticks(), None, TICK, 0.7, 1),
+    letters(M2, GOLD_DARK, LETTER_W + 1.6),
+    letters(M2, GOLD, LETTER_W),
 ]
 
 MONOCHROME = [
-    (circle(54, 54, 30), None, "#FFFFFF", 3.2, 1),
-    (circle(41.5, 44.5, 7.2), "#FFFFFF", None, 0, 1),
-    (circle(54, 38.8, 7.2), "#FFFFFF", None, 0, 1),
-    (circle(66.5, 44.5, 7.2), "#FFFFFF", None, 0, 1),
-    (circle(44.5, 64.5, 8.6), "#FFFFFF", None, 0, 1),
-    (ellipse(63.5, 64.5, 9, 6.6), "#FFFFFF", None, 0, 1),
+    letters(M1, "#FFFFFF", LETTER_W),
+    letters(M2, "#FFFFFF", LETTER_W),
+    (tape_path(), None, "#FFFFFF", 3.0, 1),
 ]
-
-BG_TOP, BG_BOTTOM = "#2E6E51", "#143528"
 
 
 def vector(shapes):
@@ -60,10 +105,9 @@ def vector(shapes):
         attrs = [f'android:pathData="{d}"']
         if fill:
             attrs.append(f'android:fillColor="{fill}"')
-            if alpha != 1:
-                attrs.append(f'android:fillAlpha="{alpha}"')
         if stroke:
-            attrs += [f'android:strokeColor="{stroke}"', f'android:strokeWidth="{sw}"']
+            attrs += [f'android:strokeColor="{stroke}"', f'android:strokeWidth="{sw}"',
+                      'android:strokeLineCap="round"', 'android:strokeLineJoin="round"']
         out.append("    <path " + " ".join(attrs) + " />")
     out.append("</vector>")
     return "\n".join(out) + "\n"
@@ -76,7 +120,7 @@ BACKGROUND = f'''<?xml version="1.0" encoding="utf-8"?>
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
-            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108"
+            <gradient android:type="linear" android:startX="20" android:startY="0" android:endX="88" android:endY="108"
                 android:startColor="{BG_TOP}" android:endColor="{BG_BOTTOM}" />
         </aapt:attr>
     </path>
@@ -84,15 +128,14 @@ BACKGROUND = f'''<?xml version="1.0" encoding="utf-8"?>
 '''
 
 
-def svg(shapes, size=432, mask=True):
-    body = [f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{BG_TOP}"/>'
+def svg(shapes, size=432):
+    body = [f'<defs><linearGradient id="g" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="{BG_TOP}"/>'
             f'<stop offset="1" stop-color="{BG_BOTTOM}"/></linearGradient>'
             '<clipPath id="c"><circle cx="54" cy="54" r="54"/></clipPath></defs>',
-            '<g clip-path="url(#c)">' if mask else "<g>",
-            '<rect width="108" height="108" fill="url(#g)"/>']
+            '<g clip-path="url(#c)"><rect width="108" height="108" fill="url(#g)"/>']
     for d, fill, stroke, sw, alpha in shapes:
-        body.append(f'<path d="{d}" fill="{fill or "none"}" fill-opacity="{alpha}" '
-                    f'stroke="{stroke or "none"}" stroke-width="{sw}"/>')
+        body.append(f'<path d="{d}" fill="{fill or "none"}" stroke="{stroke or "none"}" stroke-width="{sw}" '
+                    'stroke-linecap="round" stroke-linejoin="round"/>')
     body.append("</g>")
     return f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 108 108">{"".join(body)}</svg>'
 
