@@ -107,7 +107,7 @@ fun VoiceInput(onText: (String) -> Unit, onUnavailable: (String) -> Unit, prompt
                 onClick = ::stopAndSend,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            ) { Text("■  Stop  ·  0:${seconds.toString().padStart(2, '0')}") }
+            ) { Text("■  Stop  ·  ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}") }
             state == VoiceState.TRANSCRIBING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text("Writing it down…")

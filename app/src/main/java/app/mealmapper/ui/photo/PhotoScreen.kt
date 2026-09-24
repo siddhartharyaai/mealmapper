@@ -67,6 +67,9 @@ enum class PhotoMode { CAMERA, UPLOAD, TYPE }
 
 private const val MAX_PHOTOS = 6
 
+/** Room to narrate a meal naturally: about 3-4 paragraphs. */
+private const val MAX_MEAL_NOTE = 2000
+
 /** What the photo shows. */
 enum class PhotoKind(val label: String, val hint: String) {
     MEAL("Meal", "A plate, thali or drink. Gemini estimates each item; you can fix the grams."),
@@ -202,7 +205,7 @@ fun PhotoScreen(
 
             OutlinedTextField(
                 value = note,
-                onValueChange = { setNote(it.take(if (kind == PhotoKind.MEAL) 200 else 80)) },
+                onValueChange = { setNote(it.take(if (kind == PhotoKind.MEAL) MAX_MEAL_NOTE else 80)) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("What and how much (optional)") },
                 placeholder = {
@@ -212,13 +215,15 @@ fun PhotoScreen(
                     Text(if (kind == PhotoKind.MEAL) "Your counts and sizes beat the photo." else "Amounts in g, ml, pack or servings are used directly.")
                 },
                 singleLine = kind != PhotoKind.MEAL,
-                maxLines = if (kind == PhotoKind.MEAL) 3 else 1,
+                // Narration grows the box; long text scrolls inside it.
+                minLines = if (kind == PhotoKind.MEAL) 2 else 1,
+                maxLines = if (kind == PhotoKind.MEAL) 10 else 1,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
 
             if (kind == PhotoKind.MEAL) {
                 VoiceInput(
-                    onText = { spoken -> setNote((if (note.isBlank()) spoken else "$note, $spoken").take(200)) },
+                    onText = { spoken -> setNote((if (note.isBlank()) spoken else "$note $spoken").take(MAX_MEAL_NOTE)) },
                     onUnavailable = { error = it },
                     prompt = "Speak your meal",
                 )

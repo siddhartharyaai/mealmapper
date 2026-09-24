@@ -47,6 +47,6 @@ class VoiceRecorder(private val context: Context) {
     }
 
     companion object {
-        const val MAX_MS = 60_000
+        const val MAX_MS = 180_000 // 3 minutes: enough to narrate a whole meal
     }
 }

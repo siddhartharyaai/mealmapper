@@ -20,7 +20,7 @@ class VoiceException(message: String) : Exception(message)
 class DeepgramClient(private val settings: DeepgramSettings) {
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
         .build()
 
     suspend fun transcribe(audio: File, mimeType: String = "audio/mp4"): String = withContext(Dispatchers.IO) {
