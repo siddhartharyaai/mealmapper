@@ -26,6 +26,32 @@ PY
   adb shell input tap $(cat "$OUT/tap.txt")
 }
 
+tap_contains() {
+  # Like tap_text, but matches part of the text (long names are cut on small screens).
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+  python3 - "$1" "$OUT/ui.xml" <<'PY' > "$OUT/tap.txt"
+import re, sys
+text, path = sys.argv[1], sys.argv[2]
+xml = open(path, encoding="utf-8").read()
+for node in re.finditer(r'<node [^>]*>', xml):
+    n = node.group(0)
+    m = re.search(r'text="([^"]*)"', n)
+    if m and text in m.group(1):
+        x1, y1, x2, y2 = map(int, re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n).groups())
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        break
+PY
+  if [ ! -s "$OUT/tap.txt" ]; then echo "Not on screen: $1"; return 1; fi
+  adb shell input tap $(cat "$OUT/tap.txt")
+}
+
+on_screen() {
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+  grep -q "$1" "$OUT/ui.xml" || { echo "Expected on screen: $1"; return 1; }
+}
+
 crashed() {
   adb logcat -d -b crash > "$OUT/crash.txt" 2>/dev/null
   grep -q "$PKG" "$OUT/crash.txt" || return 1
@@ -74,6 +100,34 @@ run() {
   tap_text "History" || return 1
   sleep 4
   if crashed; then echo "CRASH on History ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  # Offline databank: search "roti", open it, set 2 rotis with the count control. No network needed.
+  adb shell input keyevent 4; sleep 3
+  tap_text "Search foods" || return 1
+  sleep 3
+  tap_text "Food" || return 1
+  adb shell input text roti; sleep 4
+  adb shell input keyevent 111; sleep 1   # hide the keyboard
+  adb shell screencap -p /sdcard/search.png; adb pull /sdcard/search.png "$OUT/$label-search.png" >/dev/null
+  if crashed; then echo "CRASH on Search ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  tap_contains "Chapati/Roti" || return 1
+  sleep 4
+  if crashed; then echo "CRASH on databank Review ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  on_screen "Nutrition facts" || return 1
+  adb shell input swipe 500 1500 500 600 300; sleep 2
+  tap_text "+" && sleep 1 && tap_text "+" && sleep 2
+  adb shell screencap -p /sdcard/review.png; adb pull /sdcard/review.png "$OUT/$label-review.png" >/dev/null
+  on_screen "70 g\|2 rotis\|rotis" || return 1
+  if crashed; then echo "CRASH on count control ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  # Voice without a key shows guidance, not a crash.
+  # Back to Home: Review -> Search -> Home (a keyboard may take one extra Back).
+  for _ in 1 2 3; do
+    adb shell input keyevent 4; sleep 3
+    tap_text "Say or type" && break
+  done
+  [ -s "$OUT/tap.txt" ] || return 1
+  sleep 3
+  on_screen "Deepgram" || return 1
+  if crashed; then echo "CRASH on Say or type ($label)"; cat "$OUT/crash.txt"; return 1; fi
   echo "OK: $label"
 }
 
