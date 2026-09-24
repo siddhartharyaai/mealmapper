@@ -1,4 +1,4 @@
-package app.mealmapper.data.gemini
+package app.mealmapper.data.ai
 
 import app.mealmapper.domain.Basis
 import app.mealmapper.domain.Nutrients
@@ -11,8 +11,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.math.abs
 import kotlin.math.max
 
-/** Raw reply from generateContent: the model's text plus the web pages Google Search grounded it on. */
-data class GeminiReply(val text: String, val groundedSites: List<String>, val model: String = "")
+/** A model's answer plus the web sites its search tool actually visited (empty when no search ran). */
+data class AiReply(val text: String, val sites: List<String>, val model: String = "")
 
 /** Nutrition facts as the model reported them, before the app's own checks. */
 data class AiNutrition(
@@ -32,43 +32,50 @@ data class AiNutrition(
 )
 
 /** Pure parsing and checks. No Android, no network: everything here is unit-tested. */
-object GeminiParsing {
+object AiParsing {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /** Extracts text parts and grounded site titles from a generateContent response body. */
-    fun reply(body: String): GeminiReply {
+    /**
+     * Parses a Groq (OpenAI-compatible) chat completion. Sites come from the search tool's own results
+     * (executed_tools), never from URLs the model writes in its text.
+     */
+    fun reply(body: String): AiReply {
         val root = json.parseToJsonElement(body).jsonObject
-        val candidate = (root["candidates"] as? JsonArray)?.firstOrNull() as? JsonObject
-            ?: throw GeminiException(blockReason(root) ?: "Gemini returned no answer.")
-        val parts = ((candidate["content"] as? JsonObject)?.get("parts") as? JsonArray).orEmpty()
-        val text = parts.mapNotNull { part ->
-            val p = part as? JsonObject ?: return@mapNotNull null
-            // Thought parts are the model's reasoning, not its answer.
-            if ((p["thought"] as? JsonPrimitive)?.content == "true") null else p.str("text")
-        }.joinToString("")
-        val chunks = ((candidate["groundingMetadata"] as? JsonObject)?.get("groundingChunks") as? JsonArray).orEmpty()
-        val sites = chunks.mapNotNull { chunk ->
-            val web = (chunk as? JsonObject)?.get("web") as? JsonObject ?: return@mapNotNull null
-            web.str("title") ?: web.str("uri")
-        }.distinct()
-        return GeminiReply(text, sites)
+        val message = ((root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject)?.get("message") as? JsonObject
+            ?: throw AiException(errorMessage(body) ?: "The AI returned no answer.")
+        val text = stripThinking(message.str("content").orEmpty())
+        val sites = urlsIn(message["executed_tools"]).mapNotNull(::site).distinct()
+        return AiReply(text, sites, root.str("model").orEmpty())
     }
 
-    /** The "message" field of a Gemini error body, if any. */
+    /** Reasoning models may put their thinking in <think> tags before the answer. */
+    fun stripThinking(text: String): String = text.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+
+    /** Every "url" value anywhere inside the tool results. The exact nesting differs by tool version. */
+    private fun urlsIn(e: JsonElement?): List<String> = when (e) {
+        is JsonObject -> e.entries.flatMap { (k, v) ->
+            if (k == "url" && v is JsonPrimitive && v.isString) listOf(v.content) else urlsIn(v)
+        }
+        is JsonArray -> e.flatMap(::urlsIn)
+        else -> emptyList()
+    }
+
+    private fun site(url: String): String? = runCatching {
+        java.net.URI(url).host?.removePrefix("www.")
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /** The "message" field of an API error body, if any. */
     fun errorMessage(body: String): String? = runCatching {
         ((json.parseToJsonElement(body).jsonObject["error"] as? JsonObject)?.get("message") as? JsonPrimitive)?.content
     }.getOrNull()?.lines()?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-
-    private fun blockReason(root: JsonObject): String? =
-        (root["promptFeedback"] as? JsonObject)?.str("blockReason")?.let { "Gemini refused the request ($it)." }
 
     /** Finds the JSON object in the model's text (it may wrap it in ``` fences or add a sentence). */
     fun nutrition(text: String): AiNutrition {
         val start = text.indexOf('{')
         val end = text.lastIndexOf('}')
-        if (start < 0 || end <= start) throw GeminiException("Gemini's answer had no data in it.")
+        if (start < 0 || end <= start) throw AiException("The AI's answer had no data in it.")
         val o = runCatching { json.parseToJsonElement(text.substring(start, end + 1)).jsonObject }
-            .getOrElse { throw GeminiException("Gemini's answer was not readable.") }
+            .getOrElse { throw AiException("The AI's answer was not readable.") }
 
         val per100 = (o["per_100"] as? JsonObject)?.let { n ->
             val kcal = n.num("energy_kcal")
@@ -144,4 +151,4 @@ object GeminiParsing {
     private const val MIN_KCAL_TO_COMPARE = 10.0
 }
 
-class GeminiException(message: String) : Exception(message)
+class AiException(message: String) : Exception(message)

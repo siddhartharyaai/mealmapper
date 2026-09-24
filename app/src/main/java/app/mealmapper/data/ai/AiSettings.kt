@@ -1,4 +1,4 @@
-package app.mealmapper.data.gemini
+package app.mealmapper.data.ai
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -14,19 +14,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * The user's Gemini API key, encrypted with an Android Keystore key that never leaves the phone's secure
- * hardware. The key is never logged, never in the repo, never in BuildConfig.
+ * The user's Groq API key, encrypted with an Android Keystore key that never leaves the phone's secure
+ * hardware, plus the two model names. The key is never logged, never in the repo, never in BuildConfig.
  */
-class GeminiSettings(context: Context) {
-    private val prefs = context.getSharedPreferences("gemini", Context.MODE_PRIVATE)
+class AiSettings(context: Context) {
+    private val prefs = context.getSharedPreferences("groq", Context.MODE_PRIVATE)
 
     private val _hasKey = MutableStateFlow(prefs.contains(KEY_CIPHERTEXT))
     val hasKey: StateFlow<Boolean> = _hasKey.asStateFlow()
 
-    /** Google renames models every few months; the user can change it without a new build. */
-    var model: String
-        get() = prefs.getString(MODEL, null) ?: DEFAULT_MODEL
-        set(value) = prefs.edit().putString(MODEL, value.trim().ifEmpty { DEFAULT_MODEL }).apply()
+    /** Reads images: nutrition labels and pack fronts. */
+    var visionModel: String
+        get() = prefs.getString(VISION, null) ?: DEFAULT_VISION_MODEL
+        set(value) = prefs.edit().putString(VISION, value.trim().ifEmpty { DEFAULT_VISION_MODEL }).apply()
+
+    /** Searches the web for a product's nutrition table. */
+    var webModel: String
+        get() = prefs.getString(WEB, null) ?: DEFAULT_WEB_MODEL
+        set(value) = prefs.edit().putString(WEB, value.trim().ifEmpty { DEFAULT_WEB_MODEL }).apply()
 
     fun saveKey(apiKey: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -68,16 +73,16 @@ class GeminiSettings(context: Context) {
     }
 
     companion object {
-        /**
-         * Flash-Lite: GA, and the only 3.x family with a usable free quota in September 2026
-         * (gemini-3.5-flash fails on free keys with 429 "limit 0"). With billing on, gemini-3.5-flash is better.
-         */
-        const val DEFAULT_MODEL = "gemini-3.1-flash-lite"
+        /** Groq's documented vision model as of 21 September 2026 (Llama 4 Scout left the free tier in June). */
+        const val DEFAULT_VISION_MODEL = "qwen/qwen3.8-27b"
+        /** Groq's agentic system with built-in web search; returns the pages it searched. */
+        const val DEFAULT_WEB_MODEL = "groq/compound"
         private const val KEYSTORE = "AndroidKeyStore"
-        private const val ALIAS = "mealmapper_gemini"
+        private const val ALIAS = "mealmapper_ai_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val KEY_CIPHERTEXT = "key_ciphertext"
         private const val KEY_IV = "key_iv"
-        private const val MODEL = "model"
+        private const val VISION = "vision_model"
+        private const val WEB = "web_model"
     }
 }

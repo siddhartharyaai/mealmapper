@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
             MealMapperTheme {
                 val nav = rememberNavController()
                 var savedMessage by rememberSaveable { mutableStateOf<String?>(null) }
-                val hasGeminiKey by container.geminiSettings.hasKey.collectAsStateWithLifecycle()
+                val hasAiKey by container.aiSettings.hasKey.collectAsStateWithLifecycle()
 
                 NavHost(navController = nav, startDestination = Routes.HOME) {
                     composable(Routes.HOME) {
@@ -83,8 +83,8 @@ class MainActivity : ComponentActivity() {
                     composable(Routes.SETTINGS) {
                         SettingsScreen(
                             store = container.profile,
-                            gemini = container.geminiSettings,
-                            geminiClient = container.gemini,
+                            ai = container.aiSettings,
+                            groq = container.groq,
                             onBack = { nav.popBackStack() },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )
@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
                         PhotoScreen(
                             mode = PhotoMode.valueOf(entry.arg("mode") ?: PhotoMode.CAMERA.name),
                             initialKind = PhotoKind.valueOf(entry.arg("kind") ?: PhotoKind.LABEL.name),
-                            hasGeminiKey = hasGeminiKey,
+                            hasAiKey = hasAiKey,
                             onBack = { nav.popBackStack() },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
                             onAnalyse = { kind, photo, note ->

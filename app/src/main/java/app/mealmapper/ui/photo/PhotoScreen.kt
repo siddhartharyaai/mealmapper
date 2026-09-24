@@ -66,7 +66,7 @@ enum class PhotoKind(val label: String, val hint: String) {
 fun PhotoScreen(
     mode: PhotoMode,
     initialKind: PhotoKind,
-    hasGeminiKey: Boolean,
+    hasAiKey: Boolean,
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onAnalyse: (kind: PhotoKind, photo: Uri, note: String) -> Unit,
@@ -135,9 +135,9 @@ fun PhotoScreen(
                 Text(if (mode == PhotoMode.CAMERA) "Take a photo" else "Upload a photo", style = MaterialTheme.typography.titleLarge)
             }
 
-            if (!hasGeminiKey) {
+            if (!hasAiKey) {
                 Text(
-                    "Photos are read by Gemini. Add your free Gemini API key in Settings first.",
+                    "Photos are read by AI (Groq). Add your Groq API key in Settings first.",
                     color = MaterialTheme.colorScheme.error,
                 )
                 OutlinedButton(onClick = onSettings) { Text("Open Settings") }
@@ -192,7 +192,7 @@ fun PhotoScreen(
             } else {
                 Button(
                     onClick = { onAnalyse(kind, current, note.trim()) },
-                    enabled = hasGeminiKey && preview != null,
+                    enabled = hasAiKey && preview != null,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (kind == PhotoKind.LABEL) "Read the label" else "Find it online") }
                 OutlinedButton(onClick = ::getPhoto, modifier = Modifier.fillMaxWidth()) {

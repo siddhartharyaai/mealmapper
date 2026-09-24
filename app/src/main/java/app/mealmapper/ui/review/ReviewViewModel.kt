@@ -7,8 +7,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.mealmapper.AppContainer
-import app.mealmapper.data.gemini.GeminiException
-import app.mealmapper.data.gemini.LookupOutcome
+import app.mealmapper.data.ai.AiException
+import app.mealmapper.data.ai.LookupOutcome
 import app.mealmapper.data.off.LookupResult
 import app.mealmapper.data.off.ParseResult
 import app.mealmapper.domain.Basis
@@ -101,7 +101,7 @@ data class ReviewForm(
 
 sealed interface ReviewState {
     data class Loading(val message: String) : ReviewState
-    /** Nothing usable found. [canSearchWeb] is false when no Gemini key is set. */
+    /** Nothing usable found. [canSearchWeb] is false when no Groq key is set. */
     data class NotFound(
         val barcode: String?,
         val productName: String?,
@@ -144,7 +144,7 @@ class ReviewViewModel(
         }
     }
 
-    /** Saved product -> Open Food Facts -> web (automatic when a Gemini key is set). */
+    /** Saved product -> Open Food Facts -> web (automatic when a Groq key is set). */
     private suspend fun barcodeFlow(code: String) {
         c.productCache.get(code)?.let {
             show(it, ProductSource.Saved)
@@ -165,7 +165,7 @@ class ReviewViewModel(
     }
 
     private suspend fun webOrNotFound(reason: String) {
-        if (c.geminiSettings.hasKey.value) webFlow(null) else notFound(reason, webTried = false)
+        if (c.aiSettings.hasKey.value) webFlow(null) else notFound(reason, webTried = false)
     }
 
     /** User-triggered retry of the web search from the Not found screen. */
@@ -197,8 +197,8 @@ class ReviewViewModel(
         block()
     } catch (e: CancellationException) {
         throw e
-    } catch (e: GeminiException) {
-        _state.value = ReviewState.Failed(e.message ?: "Gemini failed. Try again.")
+    } catch (e: AiException) {
+        _state.value = ReviewState.Failed(e.message ?: "The AI lookup failed. Try again.")
         null
     } catch (e: Exception) {
         _state.value = ReviewState.Failed("Could not read the photo. Try another one.")
@@ -208,7 +208,7 @@ class ReviewViewModel(
     private suspend fun jpeg(uri: Uri): ByteArray = withContext(Dispatchers.IO) { ImageTools.jpeg(app, uri) }
 
     private fun notFound(reason: String, webTried: Boolean) {
-        _state.value = ReviewState.NotFound(barcode, knownName, reason, c.geminiSettings.hasKey.value, webTried)
+        _state.value = ReviewState.NotFound(barcode, knownName, reason, c.aiSettings.hasKey.value, webTried)
     }
 
     private fun show(product: FoodProduct, source: ProductSource, problems: List<String> = emptyList()) {

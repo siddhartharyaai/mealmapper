@@ -1,4 +1,4 @@
-package app.mealmapper.data.gemini
+package app.mealmapper.data.ai
 
 import app.mealmapper.domain.FoodProduct
 import app.mealmapper.domain.ProductSource
@@ -10,26 +10,33 @@ sealed interface LookupOutcome {
 }
 
 /**
- * Two AI jobs, both limited to reading, never estimating:
- * - web: find the product's printed nutrition table on real web pages (Google Search grounding).
- * - label: copy the nutrition table from a photo of the pack.
+ * AI jobs, all limited to reading, never estimating:
+ * - web: find the product's printed nutrition table on real web pages (groq/compound web search).
+ * - identify: read brand, variant and pack size from a photo of the pack front (vision model).
+ * - label: copy the nutrition table from a photo of the pack (vision model).
  */
-class NutritionLookup(private val gemini: GeminiClient) {
+class NutritionLookup(private val groq: GroqClient) {
 
     suspend fun web(barcode: String?, knownName: String?, note: String, frontPhoto: ByteArray?): LookupOutcome {
+        // The search system reads no images, so a pack-front photo is first turned into an exact product name.
+        val seen = frontPhoto?.let { identify(it) }
+        val name = seen ?: knownName
+        if (name == null && barcode == null) {
+            return LookupOutcome.NotFound("Could not read the product name from the photo. Photograph the label instead.")
+        }
         val clues = buildList {
-            knownName?.let { add("Product name from Open Food Facts: $it") }
+            seen?.let { add("Product as printed on the pack front: $it") }
+            if (seen == null) knownName?.let { add("Product name from Open Food Facts: $it") }
             barcode?.let { add("Barcode (EAN): $it") }
-            if (frontPhoto != null) add("A photo of the front of the pack is attached. Use it to identify the exact variant and pack size.")
             if (note.isNotBlank()) add("User note: $note")
         }.joinToString("\n")
-        val reply = gemini.generate(WEB_PROMPT.replace("{CLUES}", clues), listOfNotNull(frontPhoto), webSearch = true)
+        val reply = groq.webSearch(WEB_PROMPT.replace("{CLUES}", clues))
 
-        // Hard rule: numbers only when Google actually returned pages. Otherwise it could be the model's memory.
-        if (reply.groundedSites.isEmpty()) {
+        // Hard rule: numbers only when the search actually returned pages. Otherwise it could be the model's memory.
+        if (reply.sites.isEmpty()) {
             return LookupOutcome.NotFound("The web search returned no pages for this product, so no numbers are shown.")
         }
-        val ai = GeminiParsing.nutrition(reply.text)
+        val ai = AiParsing.nutrition(reply.text)
         if (!ai.found || ai.per100 == null) {
             return LookupOutcome.NotFound(ai.note ?: "No page showed this product's nutrition table.")
         }
@@ -37,22 +44,27 @@ class NutritionLookup(private val gemini: GeminiClient) {
             return LookupOutcome.NotFound("Found pages, but not for this exact variant. Photograph the label instead.")
         }
         return LookupOutcome.Found(
-            product = ai.toProduct(barcode, knownName),
-            source = ProductSource.Web(reply.groundedSites, ai.sourcesAgreeing),
-            problems = GeminiParsing.problems(ai),
+            product = ai.toProduct(barcode, name),
+            source = ProductSource.Web(reply.sites, ai.sourcesAgreeing),
+            problems = AiParsing.problems(ai),
         )
+    }
+
+    /** "Britannia Nutri Choice Digestive, 125 g" from a pack-front photo, or null if unreadable. */
+    private suspend fun identify(photo: ByteArray): String? {
+        val text = groq.vision(IDENTIFY_PROMPT, listOf(photo)).text.lines().firstOrNull { it.isNotBlank() }?.trim()
+        return text?.takeUnless { it.equals("UNKNOWN", ignoreCase = true) || it.length < 3 }?.take(120)
     }
 
     suspend fun label(labelPhoto: ByteArray, barcode: String?, knownName: String?, note: String): LookupOutcome {
         val prompt = LABEL_PROMPT
             .replace("{NAME}", knownName ?: "unknown")
             .replace("{NOTE}", note.ifBlank { "none" })
-        val reply = gemini.generate(prompt, listOf(labelPhoto), jsonResponse = true)
-        val ai = GeminiParsing.nutrition(reply.text)
+        val ai = AiParsing.nutrition(groq.vision(prompt, listOf(labelPhoto)).text)
         if (!ai.found || ai.per100 == null) {
             return LookupOutcome.NotFound(ai.note ?: "No nutrition table found in the photo. Take it closer, flat, in good light.")
         }
-        return LookupOutcome.Found(ai.toProduct(barcode, knownName), ProductSource.LabelPhoto, GeminiParsing.problems(ai))
+        return LookupOutcome.Found(ai.toProduct(barcode, knownName), ProductSource.LabelPhoto, AiParsing.problems(ai))
     }
 
     private fun AiNutrition.toProduct(barcode: String?, knownName: String?) = FoodProduct(
@@ -88,7 +100,7 @@ Product clues:
 {CLUES}
 
 Rules:
-1. Search the web: the manufacturer's site first, then Indian retailers (BigBasket, Blinkit, Zepto, Swiggy Instamart, JioMart, Amazon.in, Flipkart), then Open Food Facts.
+1. Use web search: the manufacturer's site first, then Indian retailers (BigBasket, Blinkit, Zepto, Swiggy Instamart, JioMart, Amazon.in, Flipkart), then Open Food Facts.
 2. Match the EXACT variant, flavour and pack size. Brands like Britannia Nutri Choice, Parle, ITC, Haldiram's have many variants with different values. If you cannot confirm the variant, set match_confidence "uncertain".
 3. Copy numbers exactly as a page shows them. Never estimate, never use typical values for similar products. If no page shows the table, set "found": false.
 4. Values per 100 g (or per 100 ml for drinks). If a page shows only per serving, convert using the serving size and say so in "note".
@@ -97,6 +109,11 @@ Rules:
 
 Reply with ONLY this JSON object, no other text:
 $SCHEMA"""
+
+        const val IDENTIFY_PROMPT = """The photo shows the front of a packaged food or drink sold in India.
+Reply with ONE line: brand, product name, variant/flavour and net quantity exactly as printed,
+for example: Britannia Nutri Choice Digestive, 125 g
+If you cannot read it, reply: UNKNOWN"""
 
         const val LABEL_PROMPT = """The photo shows the nutrition information panel of a packaged food sold in India (FSSAI format, English and/or Hindi).
 Product (if known): {NAME}. User note: {NOTE}.

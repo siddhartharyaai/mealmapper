@@ -50,9 +50,9 @@ class PrivacyActivity : ComponentActivity() {
             "It reads nutrition for today only, to show calories eaten and left. It reads no other health data.",
             "Your food history and settings (age, weight, calorie cap) stay on this phone.",
             "When you scan a barcode, the barcode number goes to Open Food Facts to look up the product.",
-            "When you use a photo or the web lookup, the photo, your note and the product name go to Google " +
-                "Gemini to read the label or search the web. Nothing else is sent.",
-            "Your Gemini API key is encrypted on this phone and sent only to Google.",
+            "When you use a photo or the web lookup, the photo, your note and the product name go to Groq " +
+                "to read the label or search the web. Nothing else is sent.",
+            "Your Groq API key is encrypted on this phone and sent only to Groq.",
             "No account, no ads, no analytics.",
         )
     }

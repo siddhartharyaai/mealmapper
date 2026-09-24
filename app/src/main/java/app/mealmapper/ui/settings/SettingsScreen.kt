@@ -32,8 +32,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
-import app.mealmapper.data.gemini.GeminiClient
-import app.mealmapper.data.gemini.GeminiSettings
+import app.mealmapper.data.ai.AiSettings
+import app.mealmapper.data.ai.GroqClient
 import app.mealmapper.data.settings.Profile
 import app.mealmapper.data.settings.ProfileStore
 import app.mealmapper.domain.ProfileRules
@@ -42,8 +42,8 @@ import app.mealmapper.ui.common.fmt
 @Composable
 fun SettingsScreen(
     store: ProfileStore,
-    gemini: GeminiSettings,
-    geminiClient: GeminiClient,
+    ai: AiSettings,
+    groq: GroqClient,
     onBack: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
@@ -104,7 +104,7 @@ fun SettingsScreen(
             )
 
             HorizontalDivider()
-            GeminiSection(gemini, geminiClient)
+            AiSection(ai, groq)
 
             HorizontalDivider()
             Text("Health Connect", style = MaterialTheme.typography.titleMedium)
@@ -145,13 +145,14 @@ private fun NumberField(
     )
 }
 
-/** Gemini API key (encrypted on the phone) and model name. */
+/** Groq API key (encrypted on the phone) and the two model names. */
 @Composable
-private fun GeminiSection(gemini: GeminiSettings, client: GeminiClient) {
-    val hasKey by gemini.hasKey.collectAsStateWithLifecycle()
+private fun AiSection(ai: AiSettings, client: GroqClient) {
+    val hasKey by ai.hasKey.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var keyInput by remember { mutableStateOf("") }
-    var model by rememberSaveable { mutableStateOf(gemini.model) }
+    var visionModel by rememberSaveable { mutableStateOf(ai.visionModel) }
+    var webModel by rememberSaveable { mutableStateOf(ai.webModel) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
@@ -164,19 +165,19 @@ private fun GeminiSection(gemini: GeminiSettings, client: GeminiClient) {
         }
     }
 
-    Text("Gemini (reads labels, finds products online)", style = MaterialTheme.typography.titleMedium)
+    Text("AI: Groq (reads labels, finds products online)", style = MaterialTheme.typography.titleMedium)
     if (hasKey) {
         Text("API key saved and encrypted on this phone.", style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = ::test, enabled = !busy) { Text("Test key") }
             TextButton(onClick = {
-                gemini.clearKey()
+                ai.clearKey()
                 status = "Key removed."
             }) { Text("Remove key") }
         }
     } else {
         Text(
-            "Get a free key at aistudio.google.com → Get API key. Paste it here, never in a chat.",
+            "Create a key at console.groq.com → API Keys. Paste it here, never in a chat.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -184,14 +185,14 @@ private fun GeminiSection(gemini: GeminiSettings, client: GeminiClient) {
             value = keyInput,
             onValueChange = { keyInput = it.trim() },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Gemini API key") },
+            label = { Text("Groq API key") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         )
         Button(
             onClick = {
-                gemini.saveKey(keyInput)
+                ai.saveKey(keyInput)
                 keyInput = ""
                 test()
             },
@@ -200,19 +201,28 @@ private fun GeminiSection(gemini: GeminiSettings, client: GeminiClient) {
         ) { Text("Save key") }
     }
     OutlinedTextField(
-        value = model,
-        onValueChange = { model = it.trim() },
+        value = visionModel,
+        onValueChange = { visionModel = it.trim() },
         modifier = Modifier.fillMaxWidth(),
-        label = { Text("Model") },
-        supportingText = { Text("Leave as is. Change only if Google retires it.") },
+        label = { Text("Vision model (labels, pack photos)") },
         singleLine = true,
     )
-    if (model != gemini.model) {
+    OutlinedTextField(
+        value = webModel,
+        onValueChange = { webModel = it.trim() },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Web search model") },
+        supportingText = { Text("Leave both as they are unless Test key says a model is not available.") },
+        singleLine = true,
+    )
+    if (visionModel != ai.visionModel || webModel != ai.webModel) {
         TextButton(onClick = {
-            gemini.model = model
-            model = gemini.model
-            status = "Model set to ${gemini.model}."
-        }) { Text("Use this model") }
+            ai.visionModel = visionModel
+            ai.webModel = webModel
+            visionModel = ai.visionModel
+            webModel = ai.webModel
+            status = "Models saved."
+        }) { Text("Use these models") }
     }
     status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
 }

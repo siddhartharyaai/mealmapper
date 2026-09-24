@@ -9,7 +9,7 @@ APK: https://github.com/siddhartharyaai/mealmapper/releases/download/latest-debu
 |---|---|---|---|
 | 1 | Small | Portion note before barcode lookup; Settings (age, weight, calorie cap); daily ticker | Nothing |
 | 2 | Small | History, edit/delete, meal time, Recent, Favourites | Nothing |
-| 3 | Medium | Gemini set-up; **web product lookup** (barcode miss or product photo); label photos | Gemini API key |
+| 3 | Medium | AI set-up (Groq); **web product lookup** (barcode miss or product photo); label photos | Gemini API key |
 | 4 | Large | Food databank (Indian + international, drinks, alcohol); log any food by name | 20 min of searching |
 | 5 | Large | Meal photos: tap questions, ranges, katori + household fat calibration, house versions | 30 weighed meals over ~2 weeks |
 | 6 | Medium | Restaurant meals: web lookup of restaurant and dish; chains' published values | 5 restaurant meals |
@@ -57,7 +57,8 @@ Pass: Google Health always matches the app after edit/delete.
 ## Phase 3: Medium
 
 Build
-- Settings: paste Gemini API key (stored encrypted, never in the repo).
+- Settings: paste Groq API key (stored encrypted, never in the repo). Gemini was dropped: free keys returned 429 "limit 0".
+  Vision model qwen/qwen3.8-27b (labels, pack fronts); web model groq/compound (built-in web search with returned pages).
 - **Web product lookup** (added after the Britannia Nutri Choice test, where Open Food Facts had the name but
   no values). Trigger: barcode not found / no values, or a photo of the front of a pack.
   Gemini with Google Search grounding finds the product's nutrition table on the maker's site and Indian
