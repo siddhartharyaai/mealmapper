@@ -1,58 +1,131 @@
 package app.mealmapper.ui.common
 
-import android.app.Activity
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.speech.RecognizerIntent
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.mealmapper.MealMapperApp
+import app.mealmapper.data.voice.VoiceException
+import app.mealmapper.data.voice.VoiceRecorder
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-/** Speech languages offered. English (India) copes with Hinglish food words; Hindi returns Devanagari, which Gemini reads. */
-enum class VoiceLanguage(val tag: String, val label: String) {
-    ENGLISH_INDIA("en-IN", "English (India)"),
-    HINDI("hi-IN", "हिंदी"),
-}
+private enum class VoiceState { IDLE, RECORDING, TRANSCRIBING }
 
 /**
- * Android's own speech recognizer (the Google app on most phones): free, no key, no audio stored by Meal Mapper.
- * The recognizer shows its own listening screen and asks for the microphone itself, so the app needs no
- * RECORD_AUDIO permission. The words land in the text field, where the user can fix them before estimating.
+ * Speak in Hindi, English or both in one sentence ("gatte ki sabzi with two wheat rotis"): no language switch.
+ * Tap to start, tap to stop; Deepgram Nova-3 (multilingual) writes it down; the text lands in the field,
+ * where it can be fixed before estimating. The recording is deleted after sending.
  */
 @Composable
-fun VoiceInput(onText: (String) -> Unit, onUnavailable: () -> Unit, prompt: String = "Say what you ate, with amounts") {
-    var language by rememberSaveable { mutableStateOf(VoiceLanguage.ENGLISH_INDIA) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (result.resultCode == Activity.RESULT_OK && !text.isNullOrBlank()) onText(text)
+fun VoiceInput(onText: (String) -> Unit, onUnavailable: (String) -> Unit, prompt: String = "Speak") {
+    val context = LocalContext.current
+    val container = (context.applicationContext as MealMapperApp).container
+    val hasKey by container.deepgramSettings.hasKey.collectAsStateWithLifecycle()
+    val recorder = remember { VoiceRecorder(context) }
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf(VoiceState.IDLE) }
+    var seconds by remember { mutableIntStateOf(0) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) { onDispose { recorder.stopQuietly() } }
+
+    fun startRecording() {
+        error = null
+        runCatching { recorder.start() }
+            .onSuccess { seconds = 0; state = VoiceState.RECORDING }
+            .onFailure { error = "Could not start the microphone." }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedButton(onClick = {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, language.tag)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language.tag)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
-            }
-            try {
-                launcher.launch(intent)
-            } catch (e: ActivityNotFoundException) {
-                onUnavailable()
-            }
-        }) { Text("Speak") }
-        VoiceLanguage.entries.forEach { l ->
-            FilterChip(selected = language == l, onClick = { language = l }, label = { Text(l.label) })
+
+    fun stopAndSend() {
+        val file = recorder.stop()
+        if (file == null) {
+            state = VoiceState.IDLE
+            error = "Nothing recorded. Hold the phone closer and try again."
+            return
         }
+        state = VoiceState.TRANSCRIBING
+        scope.launch {
+            try {
+                val text = container.deepgram.transcribe(file)
+                if (text.isBlank()) error = "Deepgram heard no words. Try again a little louder." else onText(text)
+            } catch (e: VoiceException) {
+                error = e.message
+            } finally {
+                file.delete()
+                state = VoiceState.IDLE
+            }
+        }
+    }
+
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecording() else onUnavailable("Microphone access is needed to speak your meal.")
+    }
+
+    LaunchedEffect(state) {
+        while (state == VoiceState.RECORDING) {
+            delay(1_000)
+            seconds++
+            if (seconds * 1_000 >= VoiceRecorder.MAX_MS) stopAndSend()
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        when {
+            !hasKey -> Text(
+                "Voice: add your Deepgram API key in Settings to speak meals in Hindi, English or both.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state == VoiceState.RECORDING -> Button(
+                onClick = ::stopAndSend,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) { Text("■  Stop  ·  0:${seconds.toString().padStart(2, '0')}") }
+            state == VoiceState.TRANSCRIBING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Writing it down…")
+            }
+            else -> OutlinedButton(
+                onClick = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        startRecording()
+                    } else {
+                        permission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("🎙  $prompt  ·  Hindi, English or both") }
+        }
+        if (state == VoiceState.RECORDING) {
+            Text("Listening… tap Stop when done.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }

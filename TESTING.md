@@ -1,4 +1,4 @@
-# Meal Mapper: full test (version 1.0.0)
+# Meal Mapper: full test (version 1.1.0)
 
 About 60 minutes, in one sitting, plus the two-week meal check in Part H. Do the parts in order.
 Write down each FAIL with a screenshot. Pass = every step marked PASS, or the fail is explained in the notes.
@@ -36,27 +36,29 @@ Before you start: install the new APK over the old one (your settings, key and h
 17. Tap "Use AI" on a matched row, then back. PASS if the kcal changes and returns.
 18. Untick one item, save. PASS if Google Health shows each ticked item separately.
 
-## E. Voice and typing (5 min)
-19. Home > Say or type > Speak (English India): "two phulka, one katori toor dal, one glass chaas".
-    PASS if the words appear in the box, correctly enough to fix by hand.
-20. Switch to हिंदी and say the same in Hindi. PASS if the text appears (Devanagari is fine).
-21. Estimate. PASS if items and amounts follow what you said.
+## E. Voice and typing (5 min), Deepgram Nova-3 multilingual
+19. Settings > Voice: paste your Deepgram key > Save. PASS if "Ready. Deepgram accepted the key".
+20. Home > Say or type > Speak. Allow the microphone once. Say, mixing freely:
+    "gatte ki sabzi with two wheat rotis aur ek katori dahi". Tap Stop.
+    PASS if the text appears within ~3 seconds and the dish words are right (Hindi words may come in Devanagari).
+21. Say a fully Hindi sentence, then a fully English one. PASS if both come out without touching any setting.
+22. Estimate. PASS if items and amounts follow what you said.
 
 ## F. Restaurant and menu (5 min)
-22. Photo > Meal > Restaurant, name "McDonald's", photo of a McAloo Tikki (or a picture of one).
+23. Photo > Meal > Restaurant, name "McDonald's", photo of a McAloo Tikki (or a picture of one).
     PASS if the row says "Published by McDonald's …" or stays an estimate with a range.
-23. Scan a menu (any menu photo). PASS if it shows 3 eggetarian dishes within your calories left, with reasons,
+24. Scan a menu (any menu photo). PASS if it shows 3 eggetarian dishes within your calories left, with reasons,
     and "I ordered this" opens a meal to save.
 
 ## G. History and daily use (10 min)
-24. Home > Today list shows what you logged. PASS if it matches.
-25. All history: change one amount. PASS if Google Health shows the new value.
-26. Delete one entry. PASS if it disappears from Google Health.
-27. Star one food. Home > Log again > tap it. PASS if logged; Undo removes it.
-28. Put the phone in flight mode: Search foods still works; photo and voice estimate show a clear error.
+25. Home > Today list shows what you logged. PASS if it matches.
+26. All history: change one amount. PASS if Google Health shows the new value.
+27. Delete one entry. PASS if it disappears from Google Health.
+28. Star one food. Home > Log again > tap it. PASS if logged; Undo removes it.
+29. Put the phone in flight mode: Search foods still works; photo and voice estimate show a clear error.
 
 ## H. Accuracy (2 weeks, 2 minutes a day)
-29. For 10 home meals: before eating, weigh the plate items on a kitchen scale; log with the app as normal;
+30. For 10 home meals: before eating, weigh the plate items on a kitchen scale; log with the app as normal;
     note app grams vs scale grams. Send me the 10 pairs.
     PASS if the app is within 25% of the scale for 7 of 10 meals, total kcal.
 

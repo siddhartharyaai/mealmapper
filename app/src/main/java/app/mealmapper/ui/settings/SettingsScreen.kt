@@ -36,6 +36,8 @@ import app.mealmapper.data.ai.AiSettings
 import app.mealmapper.data.ai.GeminiClient
 import app.mealmapper.data.settings.Profile
 import app.mealmapper.data.settings.ProfileStore
+import app.mealmapper.data.voice.DeepgramClient
+import app.mealmapper.data.voice.DeepgramSettings
 import app.mealmapper.domain.ProfileRules
 import app.mealmapper.ui.common.fmt
 
@@ -44,6 +46,8 @@ fun SettingsScreen(
     store: ProfileStore,
     ai: AiSettings,
     gemini: GeminiClient,
+    voice: DeepgramSettings,
+    deepgram: DeepgramClient,
     onBack: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
@@ -146,6 +150,9 @@ fun SettingsScreen(
             AiSection(ai, gemini)
 
             HorizontalDivider()
+            VoiceSection(voice, deepgram)
+
+            HorizontalDivider()
             Text("Health Connect", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Check access, and write a test entry to confirm it reaches Google Health and Samsung Health.",
@@ -155,6 +162,67 @@ fun SettingsScreen(
             OutlinedButton(onClick = onHealthCheck, modifier = Modifier.fillMaxWidth()) { Text("Health Connect check") }
         }
     }
+}
+
+@Composable
+private fun VoiceSection(settings: DeepgramSettings, client: DeepgramClient) {
+    val hasKey by settings.hasKey.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var keyInput by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun test() {
+        busy = true
+        status = "Checking the key…"
+        scope.launch {
+            status = client.test()
+            busy = false
+        }
+    }
+
+    Text("Voice: Deepgram Nova-3", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Speak meals in Hindi, English or both in one sentence. About ₹0.55 per minute of speech; new Deepgram " +
+            "accounts get \$200 free credit. Audio goes to Deepgram only when you tap Speak.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (hasKey) {
+        Text("API key saved and encrypted on this phone.", style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = ::test, enabled = !busy) { Text("Test key") }
+            TextButton(onClick = {
+                settings.clearKey()
+                status = "Key removed."
+            }) { Text("Remove key") }
+        }
+    } else {
+        Text(
+            "Create a key at console.deepgram.com → API Keys (role Member is enough). Paste it here, never in a chat.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = keyInput,
+            onValueChange = { keyInput = it.trim() },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Deepgram API key") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        )
+        Button(
+            onClick = {
+                settings.saveKey(keyInput)
+                keyInput = ""
+                test()
+            },
+            enabled = keyInput.length >= 20,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Save key") }
+    }
+    status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
 }
 
 @Composable

@@ -62,8 +62,8 @@ fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: Stri
             )
             VoiceInput(
                 onText = { query = it.take(60) },
-                onUnavailable = { message = "No speech recognizer on this phone." },
-                prompt = "Say one food",
+                onUnavailable = { message = it },
+                prompt = "Say a food",
             )
             message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             when {

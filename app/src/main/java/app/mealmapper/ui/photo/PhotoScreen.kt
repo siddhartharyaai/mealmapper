@@ -196,7 +196,8 @@ fun PhotoScreen(
             if (kind == PhotoKind.MEAL) {
                 VoiceInput(
                     onText = { spoken -> note = (if (note.isBlank()) spoken else "$note, $spoken").take(200) },
-                    onUnavailable = { error = "No speech recognizer on this phone. Install or update the Google app." },
+                    onUnavailable = { error = it },
+                    prompt = "Speak your meal",
                 )
             }
 

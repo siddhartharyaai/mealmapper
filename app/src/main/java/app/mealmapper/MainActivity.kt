@@ -106,6 +106,8 @@ class MainActivity : ComponentActivity() {
                             store = container.profile,
                             ai = container.aiSettings,
                             gemini = container.gemini,
+                            voice = container.deepgramSettings,
+                            deepgram = container.deepgram,
                             onBack = { nav.popBackStack() },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )
