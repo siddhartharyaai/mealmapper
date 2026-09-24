@@ -155,7 +155,10 @@ fun SetupScreen(viewModel: SetupViewModel, healthConnect: HealthConnectGateway) 
 
             StepCard(number = 3, title = "Check both apps", done = false) {
                 Label("Google Health")
-                Body("Open the nutrition section for today. The chai shows as a food entry.")
+                Body(
+                    "First, one time: in Health Connect, open App permissions → Google Health and " +
+                        "allow it to read Nutrition. Then open the Health tab → Focus areas → Nutrition.",
+                )
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Label("Samsung Health")
                 Body(
