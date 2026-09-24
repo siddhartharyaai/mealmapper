@@ -9,6 +9,11 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.mealmapper.AppContainer
 import app.mealmapper.data.ai.AiException
 import app.mealmapper.data.ai.AiParsing
+import app.mealmapper.data.ai.Kitchen
+import app.mealmapper.domain.DbFood
+import app.mealmapper.domain.FoodSearch
+import app.mealmapper.domain.IndianPortions
+import app.mealmapper.domain.PieceModel
 import app.mealmapper.data.ai.LookupOutcome
 import app.mealmapper.data.log.LoggedItem
 import app.mealmapper.data.off.LookupResult
@@ -46,6 +51,8 @@ sealed interface ReviewRequest {
     /** A plate of food: photo and/or the user's words. [photo] is null for "type what you ate". */
     /** A meal: one or more photos (one per dish is fine), and/or the user's words. */
     data class Meal(val photos: List<Uri>, override val note: String, val restaurant: Boolean, val restaurantName: String?) : ReviewRequest
+    /** A food picked from the databank search. */
+    data class Food(val id: String, override val note: String) : ReviewRequest
     /** Menu photos (one per page): top picks for the calories left today. */
     data class Menu(val photos: List<Uri>, override val note: String, val restaurantName: String?) : ReviewRequest
 }
@@ -54,7 +61,8 @@ sealed interface ReviewRequest {
 data class MealRow(
     val name: String,
     val gramsText: String,
-    val per100: Nutrients,
+    /** The AI's own estimate per 100 g. */
+    val aiPer100: Nutrients,
     val estimatedGrams: Double,
     val lowKcal: Double?,
     val highKcal: Double?,
@@ -62,7 +70,16 @@ data class MealRow(
     val include: Boolean = true,
     /** Restaurant's published values (found by search), not an estimate. */
     val published: Boolean = false,
+    /** Databank row the AI matched to this dish (home food), used instead of the AI's own values when [useDb]. */
+    val db: DbFood? = null,
+    val useDb: Boolean = db != null,
+    /** Counted foods: "3 rotis, 18 cm" sets the grams. */
+    val pieces: PieceModel? = IndianPortions.modelFor(name),
+    val pieceCount: Double = pieces?.let { p -> Math.round(estimatedGrams / p.sizes[p.defaultSize].grams * 2) / 2.0 }?.coerceAtLeast(0.5) ?: 0.0,
+    val pieceSize: Int = pieces?.defaultSize ?: 0,
 ) {
+    val per100: Nutrients get() = if (useDb && db != null) db.per100 else aiPer100
+
     val grams: Double? get() = gramsText.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it <= ReviewForm.MAX_AMOUNT }
     val nutrients: Nutrients? get() = grams?.let { per100.scaled(it / 100.0) }
 
@@ -118,6 +135,10 @@ data class ReviewForm(
     val editingLabel: Boolean = false,
     /** Set when the amount came from the user's note, e.g. "125 g (half pack)". Cleared on manual change. */
     val amountFromNote: String? = null,
+    /** Counted foods (roti, bread, idli): count x size fills the amount. */
+    val pieces: PieceModel? = null,
+    val pieceCount: Double = 0.0,
+    val pieceSize: Int = pieces?.defaultSize ?: 0,
     val saving: Boolean = false,
     val error: String? = null,
 ) {
@@ -180,7 +201,7 @@ class ReviewViewModel(
         is ReviewRequest.Barcode -> request.code
         is ReviewRequest.Label -> request.barcode
         is ReviewRequest.Web -> request.barcode
-        is ReviewRequest.Meal, is ReviewRequest.Menu -> null
+        is ReviewRequest.Meal, is ReviewRequest.Menu, is ReviewRequest.Food -> null
     }
 
     init {
@@ -195,6 +216,7 @@ class ReviewViewModel(
                 is ReviewRequest.Web -> webFlow(request.photo)
                 is ReviewRequest.Meal -> mealFlow(request)
                 is ReviewRequest.Menu -> menuFlow(request)
+                is ReviewRequest.Food -> foodFlow(request.id)
             }
         }
     }
@@ -256,19 +278,33 @@ class ReviewViewModel(
                 else -> "Looking at your ${meal.photos.size} photos…"
             },
         )
+        val profile = c.profile.profile.value
+        val kitchen = Kitchen(profile.katori, profile.oilGramsPerPersonDay)
+        val restaurant = meal.restaurant || meal.restaurantName != null
         val items = runLookup {
-            c.nutritionLookup.meal(jpegs(meal.photos), meal.note, meal.restaurant, meal.restaurantName)
+            c.nutritionLookup.meal(jpegs(meal.photos), meal.note, meal.restaurant, meal.restaurantName, kitchen)
         } ?: return
-        showMeal(items, meal.restaurant || meal.restaurantName != null)
+        // Home food: swap the AI's own numbers for databank values where the AI confirms the same dish.
+        var matched: Map<Int, DbFood> = emptyMap()
+        if (!restaurant) {
+            _state.value = ReviewState.Loading("Matching to the food databank…")
+            matched = runCatching {
+                val foods = c.foodDb.all()
+                val candidates = items.map { FoodSearch.candidates(foods, it.name) }
+                c.nutritionLookup.pickFromDb(items, candidates).mapNotNull { (i, id) -> foods.firstOrNull { it.id == id }?.let { i to it } }.toMap()
+            }.getOrElse { if (it is CancellationException) throw it else emptyMap() }
+        }
+        showMeal(items, restaurant, matched)
     }
 
-    private fun showMeal(items: List<AiParsing.MealItem>, restaurant: Boolean) {
+    private fun showMeal(items: List<AiParsing.MealItem>, restaurant: Boolean, matched: Map<Int, DbFood> = emptyMap()) {
         _state.value = ReviewState.Meal(
             MealForm(
-                rows = items.map {
+                rows = items.mapIndexed { i, it ->
                     MealRow(
                         it.name, it.grams.roundToInt().toString(), it.per100, it.grams, it.lowKcal, it.highKcal, it.assumption,
                         published = it.published,
+                        db = matched[i],
                     )
                 },
                 slot = mealSlotFor(LocalTime.now()),
@@ -301,6 +337,31 @@ class ReviewViewModel(
     fun setRowGrams(i: Int, v: String) = editRow(i) { it.copy(gramsText = v.filter { c -> c.isDigit() || c == '.' }.take(6)) }
     fun toggleRow(i: Int) = editRow(i) { it.copy(include = !it.include) }
     fun setMealSlot(v: MealSlot) = editMeal { it.copy(slot = v) }
+    fun toggleRowDb(i: Int) = editRow(i) { it.copy(useDb = !it.useDb) }
+    fun setRowPieces(i: Int, count: Double, size: Int) = editRow(i) { row ->
+        val p = row.pieces ?: return@editRow row
+        val c = count.coerceIn(0.0, 50.0)
+        row.copy(pieceCount = c, pieceSize = size, gramsText = p.grams(c, size).roundToInt().toString())
+    }
+    fun setPieces(count: Double, size: Int) = edit { f ->
+        val p = f.pieces ?: return@edit f
+        val c = count.coerceIn(0.0, 50.0)
+        f.copy(pieceCount = c, pieceSize = size, amountText = if (c > 0) p.grams(c, size).fmt() else "", amountFromNote = null)
+    }
+
+    private suspend fun foodFlow(id: String) {
+        _state.value = ReviewState.Loading("Opening the databank…")
+        val food = c.foodDb.byId(id)
+        if (food == null) {
+            _state.value = ReviewState.Failed("This food is no longer in the databank. Search again.")
+            return
+        }
+        show(
+            food.toProduct(c.profile.profile.value.katori),
+            ProductSource.Databank(food.sourceLabel, "fry-corrected" in food.flags),
+            food.warnings,
+        )
+    }
 
     /** Each food is its own Health Connect entry, so Google Health lists dal, rice and phulka separately. */
     fun saveMeal() {
@@ -310,6 +371,7 @@ class ReviewViewModel(
         val entries = form.rows.filter { it.include }.mapIndexed { i, row ->
             val tag = when {
                 row.published -> "published"
+                row.useDb && row.db != null -> row.db.source
                 form.restaurant -> "restaurant est."
                 else -> "est."
             }
@@ -390,7 +452,8 @@ class ReviewViewModel(
                 note = request.note.take(ReviewForm.MAX_NOTE),
                 per100Text = per100Text(product.per100),
                 problems = problems,
-                editingLabel = problems.isNotEmpty(),
+                editingLabel = problems.isNotEmpty() && source !is ProductSource.Databank,
+                pieces = IndianPortions.modelFor(product.name),
             ),
         )
     }

@@ -4,6 +4,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -59,6 +62,7 @@ fun HomeScreen(
     onCamera: () -> Unit,
     onUpload: () -> Unit,
     onType: () -> Unit,
+    onSearch: () -> Unit,
     onMenu: () -> Unit,
     onSettings: () -> Unit,
     onHistory: () -> Unit,
@@ -67,6 +71,7 @@ fun HomeScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val quick by viewModel.quick.collectAsStateWithLifecycle()
     val quickMessage by viewModel.message.collectAsStateWithLifecycle()
+    val today by viewModel.today.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(quickMessage) {
@@ -93,7 +98,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -126,15 +131,57 @@ fun HomeScreen(
                 null -> Unit
             }
 
-            Text("Log what you ate", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
-            CaptureOption("Scan barcode", "Packaged food. Open Food Facts, then the web.", enabled = true, onClick = onBarcode)
-            CaptureOption("Take a photo", "A meal, a nutrition label or a pack front.", enabled = true, onClick = onCamera)
-            CaptureOption("Upload a photo", "From your gallery. Meal, label or pack front.", enabled = true, onClick = onUpload)
-            CaptureOption("Type what you ate", "\"2 phulka, 1 katori dal, 1 glass buttermilk\"", enabled = true, onClick = onType)
-            CaptureOption("Scan a menu", "Top 3 picks for your calories left.", enabled = true, onClick = onMenu)
+            // Log options: one compact grid, most-used first. Titles are short; the screen after explains more.
+            SectionTitle("Log food")
+            val tiles = listOf(
+                Tile("📷", "Take a photo", "Meal, label or pack", onCamera),
+                Tile("🎙", "Say or type", "\"2 roti, 1 katori dal\"", onType),
+                Tile("▦", "Scan barcode", "Packaged food", onBarcode),
+                Tile("🔍", "Search foods", "1,300 foods, offline", onSearch),
+                Tile("🖼", "Upload a photo", "From your gallery", onUpload),
+                Tile("📋", "Scan a menu", "What to order", onMenu),
+            )
+            tiles.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    pair.forEach { tile -> TileCard(tile, Modifier.weight(1f)) }
+                }
+            }
+
+            // Today at a glance; the full log is one tap away.
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Today", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = onHistory) { Text("All history") }
+            }
+            if (today.isEmpty()) {
+                Text(
+                    "Nothing logged with Meal Mapper yet today. Start with a photo of your next meal.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        today.forEach { item ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    item.mealSlot.name.lowercase().replaceFirstChar(Char::uppercase),
+                                    Modifier.width(80.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(item.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${item.nutrients.energyKcal.roundToInt()} kcal", style = MaterialTheme.typography.bodyMedium.tabular())
+                            }
+                        }
+                    }
+                }
+            }
 
             if (quick.favourites.isNotEmpty() || quick.recent.isNotEmpty()) {
-                Text("Log again", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+                SectionTitle("Log again")
                 Text(
                     "One tap logs the same amount now. Star foods in History to keep them here.",
                     style = MaterialTheme.typography.bodySmall,
@@ -144,9 +191,36 @@ fun HomeScreen(
                     QuickRow(item, onClick = { viewModel.logAgain(item) })
                 }
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
+
+private data class Tile(val icon: String, val title: String, val detail: String, val onClick: () -> Unit)
+
+@Composable
+private fun TileCard(tile: Tile, modifier: Modifier) {
+    Card(
+        modifier.heightIn(min = 104.dp).clickable(role = Role.Button, onClick = tile.onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(tile.icon, style = MaterialTheme.typography.titleLarge)
+            Text(tile.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                tile.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) =
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
 
 @Composable
 private fun QuickRow(item: LoggedItem, onClick: () -> Unit) {
@@ -223,27 +297,6 @@ private fun Headline(value: String, label: String, over: Boolean = false) {
             color = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
         )
         Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 3.dp))
-    }
-}
-
-@Composable
-private fun CaptureOption(title: String, detail: String, enabled: Boolean, onClick: () -> Unit) {
-    val colors = if (enabled) {
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    } else {
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    }
-    val textColor = if (enabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-    Card(
-        Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
-        colors = colors,
-    ) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, color = textColor)
-            Text(detail, style = MaterialTheme.typography.bodyMedium, color = textColor)
-        }
     }
 }
 

@@ -11,7 +11,26 @@ data class Profile(
     val weightKg: Double? = null,
     /** Daily calorie cap the user chose. Meal Mapper does not calculate it. */
     val dailyCapKcal: Int? = null,
-)
+    /** Kitchen calibration. Katori size in ml (default 150). */
+    val katoriMl: Int? = null,
+    /** Cooking oil + ghee the household uses per month, in litres, and how many people eat at home. */
+    val oilLitresPerMonth: Double? = null,
+    val peopleAtHome: Int? = null,
+) {
+    val katori: Int get() = katoriMl ?: DEFAULT_KATORI_ML
+
+    /** Oil and ghee per person per day in grams (oil is about 0.92 g/ml), or null if not calibrated. */
+    val oilGramsPerPersonDay: Double?
+        get() {
+            val litres = oilLitresPerMonth ?: return null
+            val people = peopleAtHome?.takeIf { it > 0 } ?: return null
+            return litres * 920.0 / 30.0 / people
+        }
+
+    companion object {
+        const val DEFAULT_KATORI_ML = 150
+    }
+}
 
 /** Three values do not need a database. SharedPreferences, exposed as a StateFlow. */
 class ProfileStore(context: Context) {
@@ -24,6 +43,9 @@ class ProfileStore(context: Context) {
             .putOrRemove(AGE, profile.ageYears?.toFloat())
             .putOrRemove(WEIGHT, profile.weightKg?.toFloat())
             .putOrRemove(CAP, profile.dailyCapKcal?.toFloat())
+            .putOrRemove(KATORI, profile.katoriMl?.toFloat())
+            .putOrRemove(OIL, profile.oilLitresPerMonth?.toFloat())
+            .putOrRemove(PEOPLE, profile.peopleAtHome?.toFloat())
             .apply()
         _profile.value = profile
     }
@@ -32,6 +54,9 @@ class ProfileStore(context: Context) {
         ageYears = prefs.floatOrNull(AGE)?.toInt(),
         weightKg = prefs.floatOrNull(WEIGHT)?.toDouble(),
         dailyCapKcal = prefs.floatOrNull(CAP)?.toInt(),
+        katoriMl = prefs.floatOrNull(KATORI)?.toInt(),
+        oilLitresPerMonth = prefs.floatOrNull(OIL)?.toDouble(),
+        peopleAtHome = prefs.floatOrNull(PEOPLE)?.toInt(),
     )
 
     private fun android.content.SharedPreferences.floatOrNull(key: String) =
@@ -44,5 +69,8 @@ class ProfileStore(context: Context) {
         const val AGE = "age_years"
         const val WEIGHT = "weight_kg"
         const val CAP = "daily_cap_kcal"
+        const val KATORI = "katori_ml"
+        const val OIL = "oil_litres_month"
+        const val PEOPLE = "people_at_home"
     }
 }

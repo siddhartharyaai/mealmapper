@@ -1,7 +1,11 @@
 package app.mealmapper.data.ai
 
+import app.mealmapper.domain.DbFood
 import app.mealmapper.domain.FoodProduct
 import app.mealmapper.domain.ProductSource
+
+/** Kitchen calibration from Settings, for home-food estimates. */
+data class Kitchen(val katoriMl: Int = 150, val oilGramsPerPersonDay: Double? = null)
 
 /** Result of a web lookup or label read, after the app's own checks. */
 sealed interface LookupOutcome {
@@ -66,16 +70,40 @@ class NutritionLookup(private val gemini: GeminiClient) {
     }
 
     /** Estimates a plate of food from a photo and/or the user's words. Always labelled as an estimate. */
-    suspend fun meal(photos: List<ByteArray>, note: String, restaurant: Boolean, restaurantName: String?): List<AiParsing.MealItem> {
+    suspend fun meal(
+        photos: List<ByteArray>,
+        note: String,
+        restaurant: Boolean,
+        restaurantName: String?,
+        kitchen: Kitchen = Kitchen(),
+    ): List<AiParsing.MealItem> {
         val place = when {
             restaurantName != null -> "$RESTAURANT Restaurant: $restaurantName."
             restaurant -> RESTAURANT
-            else -> HOME
+            else -> HOME + kitchen.oilGramsPerPersonDay?.let {
+                " This household uses about ${Math.round(it)} g of oil and ghee per person per day in total, across all meals."
+            }.orEmpty()
         }
         val prompt = MEAL_PROMPT.replace("{PLACE}", place).replace("{NOTE}", note.ifBlank { "none" })
+            .replace("katori 150 ml", "katori ${kitchen.katoriMl} ml")
+            .replace("1 katori = 150 g", "1 katori = ${kitchen.katoriMl} g")
         val items = AiParsing.meal(gemini.vision(prompt, photos).text)
         if (items.isEmpty()) throw AiException("No food recognised. Try a clearer photo, or type what you ate.")
         return if (restaurantName != null) published(restaurantName, items) else items
+    }
+
+    /**
+     * For each home-food item, asks the model which databank row is the same dish (from a short candidate list
+     * found locally). Returns item index -> row id. Text only, no search: cheap and fast.
+     */
+    suspend fun pickFromDb(items: List<AiParsing.MealItem>, candidates: List<List<DbFood>>): Map<Int, String> {
+        if (candidates.all { it.isEmpty() }) return emptyMap()
+        val list = items.mapIndexed { i, item ->
+            val options = candidates[i].joinToString("\n") { "   - ${it.id}: ${it.name}" }.ifEmpty { "   (none)" }
+            "${i + 1}. ${item.name} (${item.grams.toInt()} g)\n$options"
+        }.joinToString("\n")
+        val reply = gemini.text(PICK_PROMPT.replace("{ITEMS}", list))
+        return AiParsing.picks(reply.text, candidates.mapIndexed { i, c -> i to c.map { it.id }.toSet() }.toMap())
     }
 
     /**
@@ -194,6 +222,15 @@ $SCHEMA"""
 
         const val HOME = "Home-cooked food from a Mumbai household kitchen, made by a home cook. Moderate oil; phulka/roti usually without ghee unless visible."
         const val RESTAURANT = "Restaurant or takeaway food in Mumbai. Restaurants use more oil, butter, cream and larger portions than home cooking."
+
+        const val PICK_PROMPT = """Match each food a person ate to a row of an Indian food composition databank.
+For each item, choose the candidate that is the SAME dish: same main ingredient AND same way of cooking
+(e.g. "Dal tadka" matches a plain toor/arhar or mixed dal, not "moong dal halwa"; "Phulka" matches "Chapati/Roti").
+If no candidate is the same dish, use null. Never pick a row just because one word is shared.
+
+{ITEMS}
+
+Reply with ONLY this JSON: {"picks": [{"item": 1, "id": "ASC107"}, {"item": 2, "id": null}]}"""
 
         const val PUBLISHED_PROMPT = """Find the nutrition values that the restaurant "{RESTAURANT}" (India) publishes for these dishes:
 {DISHES}

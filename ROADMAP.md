@@ -87,6 +87,11 @@ Pass: 9 of 10 read correctly on the first try; wrong reads are highlighted, not 
 
 ## Phase 4: Large
 
+Shipped in 1.0.0: `tools/fooddb/` builds 1,321 eggetarian foods (INDB 853 cooked recipes, IFCT 2017 343, CoFID 120,
+alcohol 5 by ABV). 107 deep-fried recipes corrected (frying oil -> absorbed oil, 18% of fried weight). Search with
+Hinglish synonyms. Log by name with count x size (roti by diameter, Indian bread slices) and katori multiples.
+See tools/fooddb/REPORT.md.
+
 Build
 - `tools/fooddb/` pipeline: INDB (recomputed from ingredient lines, fried-food oil fixed), IFCT 2017,
   USDA Foundation + SR Legacy + FNDDS. Validation gates, quality flags, `REPORT.md`.
@@ -105,7 +110,9 @@ Pass: 18 of 20 found; no absurd values (e.g. poori is no longer 738 kcal/100 g).
 Shipped first in 0.7.0 (user asked for the full app fast): meal photo or typed meal -> Gemini lists each item with
 grams, kcal, macros, a kcal range and its assumption, using IFCT-style values. Home / Restaurant switch. Every item is
 editable, can be left out, and is saved as its own Health Connect entry marked "est.". Labelled as an estimate on screen.
-Still to come: databank matching (phase 4), calibration, house versions.
+1.0.0: home-food items are matched to the databank (Gemini picks the same dish from local candidates; the user can
+switch back to the AI values), katori and monthly oil calibration in Settings, count x size on meal rows, voice input.
+House versions are covered by Favourites + Log again (your usual amount, one tap).
 
 Build
 - Meal photos: recognise -> up to 2 tap questions -> match to databank -> compute. No invented numbers.
@@ -147,6 +154,10 @@ Test
 Pass: picks are eggetarian, within calories left, and you would actually order at least one.
 
 ## Phase 8: Small
+
+1.0.0: Home redesigned (ticker, one grid of log options, Today list, Log again), empty states, full test in TESTING.md.
+Release signing stays on the committed key: changing it would force an uninstall and lose local history. Fine for a
+personal app that is not on the Play Store.
 
 Build
 - Empty and error states, icon pass, release signing key kept out of the repo, Samsung Health check.

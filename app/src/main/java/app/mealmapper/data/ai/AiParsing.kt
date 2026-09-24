@@ -109,6 +109,21 @@ object AiParsing {
         }
     }
 
+    /**
+     * The model's choice of databank row per meal item: {"picks":[{"item":1,"id":"ASC107"}]} with 1-based items.
+     * Ids not in [allowed] are ignored, so the model cannot invent a row.
+     */
+    fun picks(text: String, allowed: Map<Int, Set<String>>): Map<Int, String> {
+        val raw = lastJsonObject(text) ?: return emptyMap()
+        val list = (json.parseToJsonElement(raw).jsonObject["picks"] as? JsonArray).orEmpty()
+        return list.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            val item = o.num("item")?.toInt()?.minus(1) ?: return@mapNotNull null
+            val id = o.str("id")?.takeIf { it != "null" } ?: return@mapNotNull null
+            if (allowed[item]?.contains(id) == true) item to id else null
+        }.toMap()
+    }
+
     /** Web sites named in the answer text (used only when Google attached no citations). */
     fun sitesInText(text: String): List<String> =
         Regex("""https?://[^\s)\]>"']+""").findAll(text).mapNotNull { site(it.value) }.distinct().take(5).toList()

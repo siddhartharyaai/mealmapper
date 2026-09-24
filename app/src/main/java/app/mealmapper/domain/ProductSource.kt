@@ -23,6 +23,12 @@ sealed interface ProductSource {
             }
     }
 
+    /** Offline databank row (tools/fooddb). */
+    data class Databank(val sourceName: String, val fryCorrected: Boolean) : ProductSource {
+        override val label: String
+            get() = "Databank · $sourceName" + if (fryCorrected) " · frying oil corrected to oil absorbed" else ""
+    }
+
     data object LabelPhoto : ProductSource {
         override val label = "Read from your label photo · check the highlighted values"
     }

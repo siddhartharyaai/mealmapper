@@ -51,6 +51,9 @@ fun SettingsScreen(
     var age by rememberSaveable { mutableStateOf(saved.ageYears?.toString().orEmpty()) }
     var weight by rememberSaveable { mutableStateOf(saved.weightKg?.fmt().orEmpty()) }
     var cap by rememberSaveable { mutableStateOf(saved.dailyCapKcal?.toString().orEmpty()) }
+    var katori by rememberSaveable { mutableStateOf(saved.katoriMl?.toString().orEmpty()) }
+    var oil by rememberSaveable { mutableStateOf(saved.oilLitresPerMonth?.fmt().orEmpty()) }
+    var people by rememberSaveable { mutableStateOf(saved.peopleAtHome?.toString().orEmpty()) }
     var done by rememberSaveable { mutableStateOf(false) }
 
     val ageValue = age.toIntOrNull()
@@ -59,7 +62,14 @@ fun SettingsScreen(
     val ageError = ProfileRules.ageError(ageValue)
     val weightError = ProfileRules.weightError(weightValue)
     val capError = ProfileRules.capError(capValue)
-    val valid = ageError == null && weightError == null && capError == null
+    val katoriValue = katori.toIntOrNull()
+    val oilValue = oil.replace(',', '.').toDoubleOrNull()
+    val peopleValue = people.toIntOrNull()
+    val katoriError = katoriValue?.takeIf { it !in 50..500 }?.let { "Between 50 and 500 ml." }
+    val oilError = oilValue?.takeIf { it <= 0 || it > 30 }?.let { "Between 0.1 and 30 litres." }
+    val peopleError = peopleValue?.takeIf { it !in 1..20 }?.let { "Between 1 and 20." }
+    val valid = ageError == null && weightError == null && capError == null &&
+        katoriError == null && oilError == null && peopleError == null
 
     Scaffold { padding ->
         Column(
@@ -89,9 +99,38 @@ fun SettingsScreen(
                 isError = capError != null,
             ) { cap = it.filter(Char::isDigit).take(4); done = false }
 
+            Text("Your kitchen", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Makes meal estimates fit your home. Measure your katori once with a measuring cup of water.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            NumberField("Katori size", katori, "ml", katoriError ?: "Blank = 150 ml.", isError = katoriError != null) {
+                katori = it.filter(Char::isDigit).take(3); done = false
+            }
+            NumberField(
+                "Oil + ghee bought per month",
+                oil,
+                "litres",
+                oilError ?: "All cooking oil and ghee together, from your monthly shopping.",
+                isError = oilError != null,
+                decimal = true,
+            ) { oil = it.filter { c -> c.isDigit() || c == '.' }.take(4); done = false }
+            NumberField("People eating at home", people, "people", peopleError, isError = peopleError != null) {
+                people = it.filter(Char::isDigit).take(2); done = false
+            }
+            val perDay = Profile(oilLitresPerMonth = oilValue, peopleAtHome = peopleValue).oilGramsPerPersonDay
+            if (perDay != null) {
+                Text(
+                    "≈ ${perDay.fmt()} g oil and ghee per person per day. Meal estimates use this for home food.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
             Button(
                 onClick = {
-                    store.save(Profile(ageValue, weightValue, capValue))
+                    store.save(Profile(ageValue, weightValue, capValue, katoriValue, oilValue, peopleValue))
                     done = true
                 },
                 enabled = valid,

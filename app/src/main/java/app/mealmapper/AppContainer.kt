@@ -7,6 +7,7 @@ import app.mealmapper.data.ai.GeminiClient
 import app.mealmapper.data.ai.NutritionLookup
 import app.mealmapper.data.health.HealthConnectGateway
 import app.mealmapper.data.log.LogStore
+import app.mealmapper.data.fooddb.FoodDb
 import app.mealmapper.data.off.OpenFoodFactsClient
 import app.mealmapper.data.settings.ProfileStore
 
@@ -21,4 +22,5 @@ class AppContainer(context: Context) {
     val nutritionLookup: NutritionLookup by lazy { NutritionLookup(gemini) }
     val productCache: ProductCache by lazy { ProductCache(appContext) }
     val log: LogStore by lazy { LogStore(appContext) }
+    val foodDb: FoodDb by lazy { FoodDb(appContext) }
 }

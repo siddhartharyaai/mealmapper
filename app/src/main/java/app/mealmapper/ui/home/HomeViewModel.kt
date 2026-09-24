@@ -45,6 +45,13 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         QuickLog(latest.filter { it.favourite }.take(8), latest.filter { !it.favourite }.take(5))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuickLog(emptyList(), emptyList()))
 
+    /** What Meal Mapper logged today, oldest first. */
+    val today: StateFlow<List<LoggedItem>> = c.log.items.map { all ->
+        val zone = java.time.ZoneId.systemDefault()
+        val day = java.time.LocalDate.now(zone)
+        all.filter { it.time.atZone(zone).toLocalDate() == day }.sortedBy { it.eatenAt }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
     private var lastLogged: LoggedItem? = null

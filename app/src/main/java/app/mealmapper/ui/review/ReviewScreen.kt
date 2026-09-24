@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.Nutrients
+import app.mealmapper.domain.PieceModel
 import app.mealmapper.domain.ProductSource
 import app.mealmapper.domain.isIndianBarcode
 import app.mealmapper.domain.portionOptions
@@ -176,7 +177,8 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
         },
     )
     if (form.problems.isNotEmpty()) {
-        Warning("Check these against the pack: " + form.problems.joinToString(" "))
+        val prefix = if (form.source is ProductSource.Databank) "Note: " else "Check these against the pack: "
+        Warning(prefix + form.problems.joinToString(" "))
     }
 
     // 1. The facts, as printed. The user reads these before saying how much they ate.
@@ -203,6 +205,10 @@ private fun Form(form: ReviewForm, vm: ReviewViewModel) {
 
     // 2. How much the user ate.
     Section("How much did you eat?")
+    form.pieces?.let { p ->
+        PieceStepper(p, form.pieceCount, form.pieceSize) { count, size -> vm.setPieces(count, size) }
+        Text("Or choose an amount:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     if (!form.isManual) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             portionOptions(form.product).forEach { option ->
@@ -309,6 +315,36 @@ private fun MenuPicks(state: ReviewState.Menu, onPick: (AiParsing.MealItem) -> U
     TextButton(onClick = onBack) { Text("Back") }
 }
 
+/**
+ * "How many, what size": the way Indians count rotis, pooris, idlis and bread. Sizes for flatbreads are
+ * diameters (a quarter plate is about 18 cm); the grams are typical and shown so the user can check them.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PieceStepper(model: PieceModel, count: Double, size: Int, onChange: (Double, Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onChange((count - 0.5).coerceAtLeast(0.0), size) }, enabled = count > 0) { Text("−") }
+            Text(
+                if (count % 1.0 == 0.0) count.toInt().toString() else "%.1f".format(count),
+                style = MaterialTheme.typography.headlineSmall.tabular(),
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            OutlinedButton(onClick = { onChange(if (count < 1.0) 1.0 else count + 1.0, size) }) { Text("+") }
+            Text(if (count == 1.0) model.noun else model.plural, style = MaterialTheme.typography.titleMedium)
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            model.sizes.forEachIndexed { i, s ->
+                FilterChip(
+                    selected = size == i,
+                    onClick = { onChange(if (count == 0.0) 1.0 else count, i) },
+                    label = { Text("${s.label} · ${s.grams.fmt()} g") },
+                )
+            }
+        }
+    }
+}
+
 /** The product's nutrition table: per 100 g/ml, and per serving when the pack gives one. */
 @Composable
 private fun Facts(form: ReviewForm) {
@@ -363,8 +399,13 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
     ) {
         Text(
-            "Estimate, not measured. Gemini estimated each item from the photo and your note using typical " +
-                (if (form.restaurant) "restaurant" else "home-cooked") + " Indian values. Fix the grams if you know them.",
+            if (form.restaurant) {
+                "Estimate, not measured. Gemini estimated each item from the photo and your note using typical restaurant " +
+                    "values; published chain values are used where found. Fix the grams if you know them."
+            } else {
+                "Estimate, not measured. Gemini estimated the grams from the photo and your note. Where it found the same " +
+                    "dish in the food databank (INDB/IFCT), those values are used. Fix the grams if you know them."
+            },
             Modifier.padding(12.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -411,6 +452,9 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
                     )
                 }
                 if (row.include) {
+                    row.pieces?.let { p ->
+                        PieceStepper(p, row.pieceCount, row.pieceSize) { count, size -> vm.setRowPieces(i, count, size) }
+                    }
                     OutlinedTextField(
                         value = row.gramsText,
                         onValueChange = { vm.setRowGrams(i, it) },
@@ -427,6 +471,17 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
                             style = MaterialTheme.typography.bodySmall.tabular(),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    row.db?.let { db ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (row.useDb) "Values: ${db.name.substringBefore(" (")} · ${db.source}" else "Values: AI estimate",
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (row.useDb) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                            )
+                            TextButton(onClick = { vm.toggleRowDb(i) }) { Text(if (row.useDb) "Use AI" else "Use databank") }
+                        }
                     }
                     row.assumption?.let {
                         if (row.published) {

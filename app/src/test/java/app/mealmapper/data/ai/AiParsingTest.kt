@@ -140,4 +140,10 @@ class AiParsingTest {
         assertEquals(listOf("blinkit.com"), AiParsing.sitesInText("Blinkit.com lists 420 kcal per 100 g."))
         assertTrue(AiParsing.sitesInText("no pages here").isEmpty())
     }
+
+    @Test fun picksIgnoreIdsThatWereNotOffered() {
+        val text = """{"picks":[{"item":1,"id":"ASC107"},{"item":2,"id":null},{"item":3,"id":"MADEUP"}]}"""
+        val picks = AiParsing.picks(text, mapOf(0 to setOf("ASC107"), 1 to setOf("X"), 2 to setOf("Y")))
+        assertEquals(mapOf(0 to "ASC107"), picks)
+    }
 }

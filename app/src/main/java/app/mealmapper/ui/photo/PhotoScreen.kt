@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import app.mealmapper.ui.common.VoiceInput
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -162,7 +163,7 @@ fun PhotoScreen(
                     when (mode) {
                         PhotoMode.CAMERA -> "Take a photo"
                         PhotoMode.UPLOAD -> "Upload a photo"
-                        PhotoMode.TYPE -> "Type what you ate"
+                        PhotoMode.TYPE -> "Say or type what you ate"
                     },
                     style = MaterialTheme.typography.titleLarge,
                 )
@@ -191,6 +192,13 @@ fun PhotoScreen(
                 maxLines = if (kind == PhotoKind.MEAL) 3 else 1,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
+
+            if (kind == PhotoKind.MEAL) {
+                VoiceInput(
+                    onText = { spoken -> note = (if (note.isBlank()) spoken else "$note, $spoken").take(200) },
+                    onUnavailable = { error = "No speech recognizer on this phone. Install or update the Google app." },
+                )
+            }
 
             if (!typing) {
                 Text("The photo shows", style = MaterialTheme.typography.titleMedium)
@@ -223,6 +231,7 @@ fun PhotoScreen(
             }
 
             if (typing) {
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
                     onClick = { onAnalyse(PhotoKind.MEAL, emptyList(), note.trim(), restaurant, restaurantName.trim()) },
                     enabled = hasAiKey && note.isNotBlank(),

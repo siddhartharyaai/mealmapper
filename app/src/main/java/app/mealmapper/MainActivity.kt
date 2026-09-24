@@ -28,6 +28,7 @@ import app.mealmapper.ui.review.ReviewRequest
 import app.mealmapper.ui.review.ReviewScreen
 import app.mealmapper.ui.review.ReviewViewModel
 import app.mealmapper.ui.scan.ScanScreen
+import app.mealmapper.ui.search.SearchScreen
 import app.mealmapper.ui.settings.SettingsScreen
 import app.mealmapper.ui.setup.SetupScreen
 import app.mealmapper.ui.setup.SetupViewModel
@@ -39,6 +40,7 @@ private object Routes {
     const val SETUP = "setup"
     const val SETTINGS = "settings"
     const val HISTORY = "history"
+    const val SEARCH = "search"
     const val PHOTO = "photo?mode={mode}&kind={kind}&code={code}&name={name}"
     const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}&place={place}"
 
@@ -81,10 +83,18 @@ class MainActivity : ComponentActivity() {
                             onCamera = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MEAL)) },
                             onUpload = { nav.navigate(Routes.photo(PhotoMode.UPLOAD, PhotoKind.MEAL)) },
                             onType = { nav.navigate(Routes.photo(PhotoMode.TYPE, PhotoKind.MEAL)) },
+                            onSearch = { nav.navigate(Routes.SEARCH) },
                             onMenu = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MENU)) },
                             onSettings = { nav.navigate(Routes.SETTINGS) },
                             onHistory = { nav.navigate(Routes.HISTORY) },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
+                        )
+                    }
+                    composable(Routes.SEARCH) {
+                        SearchScreen(
+                            db = container.foodDb,
+                            onBack = { nav.popBackStack() },
+                            onPick = { id, note -> nav.navigate(Routes.review("food", code = id, note = note)) },
                         )
                     }
                     composable(Routes.HISTORY) {
@@ -146,6 +156,7 @@ class MainActivity : ComponentActivity() {
                             "web" -> ReviewRequest.Web(photo, note, code, name)
                             "meal" -> ReviewRequest.Meal(photos, note, restaurant = entry.arg("place") == "restaurant", restaurantName = name)
                             "menu" -> ReviewRequest.Menu(photos, note, restaurantName = name)
+                            "food" -> ReviewRequest.Food(code.orEmpty(), note)
                             else -> ReviewRequest.Barcode(code.orEmpty(), note)
                         }
                         val vm: ReviewViewModel = viewModel(

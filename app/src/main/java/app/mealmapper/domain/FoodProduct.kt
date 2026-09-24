@@ -12,6 +12,8 @@ data class FoodProduct(
     val basis: Basis,
     val servingSize: Double?,
     val packSize: Double?,
+    /** Extra portion choices from the databank: "1 roti · 40 g", "1 katori · 150 g". */
+    val portions: List<PortionOption> = emptyList(),
 )
 
 data class PortionOption(val label: String, val amount: Double)
@@ -22,7 +24,7 @@ data class PortionOption(val label: String, val amount: Double)
  */
 fun portionOptions(product: FoodProduct): List<PortionOption> {
     val unit = product.basis.unit
-    val options = mutableListOf<PortionOption>()
+    val options = product.portions.map { if (Regex("\\d (g|ml)\\b").containsMatchIn(it.label)) it else it.copy(label = "${it.label} · ${it.amount.clean()} $unit") }.toMutableList()
     product.servingSize?.let { options += PortionOption("1 serving · ${it.clean()} $unit", it) }
     options += PortionOption("100 $unit", 100.0)
     if (product.basis == Basis.MILLILITRES) {

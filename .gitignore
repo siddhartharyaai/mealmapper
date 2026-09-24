@@ -9,3 +9,4 @@ captures/
 *.apk
 *.aab
 release.keystore
+tools/fooddb/raw/
