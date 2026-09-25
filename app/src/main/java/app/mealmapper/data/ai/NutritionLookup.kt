@@ -406,7 +406,8 @@ Rules:
 4. kcal must agree with macros: protein x4 + carbs x4 + fat x9, within 10%.
 5. kcal_low and kcal_high: a realistic range for this item given what cannot be seen (oil, hidden portions).
 6. assumption: one short line with what you assumed (e.g. "1 tsp oil in tadka", "2 phulkas under the dal").
-7. Do not invent items you cannot see or that the eater did not mention.
+7. Do not invent items you cannot see or that the eater did not mention. Plain water is not an item (0 kcal).
+   Always give sugar_g and fiber_g (0 when there is none).
 8. ROUTING. The app looks every item up in a food databank (INDB cooked Indian recipes, IFCT 2017) or on the web; your
    own numbers are only the last fallback. So for each item also give:
    - "kind": "branded" for any named product (supplement, protein or greens powder, health drink, packaged or

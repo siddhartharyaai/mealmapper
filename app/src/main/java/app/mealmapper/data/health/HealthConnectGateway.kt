@@ -95,6 +95,8 @@ class HealthConnectGateway(private val context: Context) {
                     NutritionRecord.PROTEIN_TOTAL,
                     NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL,
                     NutritionRecord.TOTAL_FAT_TOTAL,
+                    NutritionRecord.DIETARY_FIBER_TOTAL,
+                    NutritionRecord.SUGAR_TOTAL,
                 ),
                 timeRangeFilter = TimeRangeFilter.between(today.atStartOfDay(), today.plusDays(1).atStartOfDay()),
             ),
@@ -104,6 +106,8 @@ class HealthConnectGateway(private val context: Context) {
             proteinG = result[NutritionRecord.PROTEIN_TOTAL]?.inGrams ?: 0.0,
             carbsG = result[NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL]?.inGrams ?: 0.0,
             fatG = result[NutritionRecord.TOTAL_FAT_TOTAL]?.inGrams ?: 0.0,
+            fiberG = result[NutritionRecord.DIETARY_FIBER_TOTAL]?.inGrams ?: 0.0,
+            sugarG = result[NutritionRecord.SUGAR_TOTAL]?.inGrams ?: 0.0,
         )
     }
 

@@ -284,6 +284,11 @@ private fun Ticker(totals: DayTotals?, cap: Int?, failed: Boolean, onSettings: (
                 "Protein ${totals.proteinG.roundToInt()} g · Carbs ${totals.carbsG.roundToInt()} g · Fat ${totals.fatG.roundToInt()} g",
                 style = MaterialTheme.typography.bodyMedium.tabular(),
             )
+            Text(
+                "Fibre ${totals.fiberG.roundToInt()} g · Sugar ${totals.sugarG.roundToInt()} g",
+                style = MaterialTheme.typography.bodyMedium.tabular(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

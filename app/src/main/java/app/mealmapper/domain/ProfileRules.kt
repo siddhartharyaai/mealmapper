@@ -14,4 +14,11 @@ object ProfileRules {
 }
 
 /** Today's totals across every app that writes to Health Connect. */
-data class DayTotals(val energyKcal: Double, val proteinG: Double, val carbsG: Double, val fatG: Double)
+data class DayTotals(
+    val energyKcal: Double,
+    val proteinG: Double,
+    val carbsG: Double,
+    val fatG: Double,
+    val fiberG: Double = 0.0,
+    val sugarG: Double = 0.0,
+)

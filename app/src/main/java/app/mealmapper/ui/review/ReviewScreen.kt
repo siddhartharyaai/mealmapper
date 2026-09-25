@@ -426,6 +426,7 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
             }
             Line("Protein", total.proteinG, "g", strong = true)
             Line("Carbohydrate", total.carbsG, "g", strong = true)
+            total.sugarG?.let { Line("  of which sugar", it, "g") }
             Line("Fat", total.fatG, "g", strong = true)
             total.fiberG?.let { Line("Fibre", it, "g") }
         }
@@ -463,6 +464,7 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
                     row.nutrients?.let { n ->
                         Text(
                             "P ${n.proteinG.fmt1()} g · C ${n.carbsG.fmt1()} g · F ${n.fatG.fmt1()} g" +
+                                (n.fiberG?.let { " · Fb ${it.fmt1()} g" } ?: "") + (n.sugarG?.let { " · S ${it.fmt1()} g" } ?: "") +
                                 (row.range?.let { " · range ${it.first.kcal()}–${it.second.kcal()}" } ?: ""),
                             style = MaterialTheme.typography.bodySmall.tabular(),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

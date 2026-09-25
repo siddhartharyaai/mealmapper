@@ -12,8 +12,8 @@ android {
         applicationId = "app.mealmapper"
         minSdk = 28
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.5.0"
+        versionCode = 21
+        versionName = "1.5.1"
     }
 
     signingConfigs {
