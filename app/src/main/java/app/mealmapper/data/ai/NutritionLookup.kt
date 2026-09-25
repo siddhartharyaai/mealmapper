@@ -1,6 +1,7 @@
 package app.mealmapper.data.ai
 
 import app.mealmapper.domain.DbFood
+import app.mealmapper.domain.FoodSearch
 import app.mealmapper.domain.FoodProduct
 import app.mealmapper.domain.ProductSource
 
@@ -119,6 +120,86 @@ class NutritionLookup(private val gemini: GeminiClient) {
         }
     }
 
+    /** Per-100 g values for a generic food or dish from reliable web sources (IFCT, INDB, USDA, CoFID…). */
+    suspend fun webFood(name: String): LookupOutcome {
+        val research = gemini.webSearch(FOOD_RESEARCH_PROMPT.replace("{FOOD}", name))
+        if (!research.searched && research.sites.isEmpty()) return LookupOutcome.NotFound("Google Search did not run.")
+        if (research.text.contains("NOT_FOUND") && research.text.length < 400) {
+            return LookupOutcome.NotFound("No reliable page for $name.")
+        }
+        val sites = research.sites.ifEmpty { AiParsing.sitesInText(research.text) }
+        val ai = AiParsing.nutrition(gemini.text(EXTRACT_PROMPT.replace("{REPORT}", research.text)).text)
+        if (!ai.found || ai.per100 == null) return LookupOutcome.NotFound("No values for $name on the pages found.")
+        return LookupOutcome.Found(
+            ai.toProduct(null, name),
+            ProductSource.Web(sites, ai.sourcesAgreeing, cited = research.sites.isNotEmpty()),
+            AiParsing.problems(ai),
+        )
+    }
+
+    /** What [resolve] produced: items with their values, and the databank row used for each matched item. */
+    data class Resolved(val items: List<AiParsing.MealItem>, val matched: Map<Int, DbFood>)
+
+    /**
+     * The source ladder. Every item goes down it until something factual is found; the AI's own numbers are last.
+     *  1. Named products ("branded"): the product's own label values from the web.
+     *  2. Everything else: the food databank (INDB cooked recipes, IFCT 2017, CoFID); Gemini picks the same dish
+     *     from local candidates and may say "none".
+     *  3. Not in the databank: per-100 g values from reliable web sources (IFCT, INDB, USDA, CoFID).
+     *  4. Still nothing: the AI's estimate, shown as such.
+     * Restaurant food skips 2-3: home recipes and generic values would understate restaurant oil and portions.
+     */
+    suspend fun resolve(
+        estimated: List<AiParsing.MealItem>,
+        foods: List<DbFood>,
+        restaurant: Boolean,
+        progress: (String) -> Unit,
+    ): Resolved {
+        var items = estimated
+        val products = items.filter { it.lookup != null && !it.published }
+        if (products.isNotEmpty()) {
+            progress("Searching the web for ${products.joinToString { it.name }}…")
+            items = lookUpProducts(items)
+        }
+        if (restaurant) return Resolved(items, emptyMap())
+
+        // Step 2: databank, for everything that is not a named product and has no label values yet.
+        val open = { i: Int -> !items[i].published && items[i].lookup == null }
+        progress("Matching to the food databank…")
+        val candidates = items.indices.map { i ->
+            if (!open(i)) {
+                emptyList()
+            } else {
+                val byName = FoodSearch.candidates(foods, items[i].searchName ?: items[i].name)
+                (byName + FoodSearch.candidates(foods, items[i].name)).distinctBy { it.id }.take(10)
+            }
+        }
+        val matched = runCatching {
+            pickFromDb(items, candidates).mapNotNull { (i, id) -> foods.firstOrNull { it.id == id }?.let { i to it } }.toMap()
+        }.getOrDefault(emptyMap())
+
+        // Step 3: the web, for what the databank does not have. At most 5 items, to keep a meal under a minute.
+        val missing = items.indices.filter { open(it) && it !in matched }.take(MAX_WEB_ITEMS)
+        if (missing.isNotEmpty()) {
+            progress("Not in the databank: searching the web for ${missing.joinToString { items[it].name }}…")
+            items = items.mapIndexed { i, item ->
+                if (i !in missing) return@mapIndexed item
+                val found = runCatching { webFood(item.searchName ?: item.name) }.getOrNull() as? LookupOutcome.Found
+                    ?: return@mapIndexed item
+                val sites = (found.source as? ProductSource.Web)?.sites.orEmpty().take(2).joinToString()
+                item.copy(
+                    per100 = found.product.per100,
+                    lowKcal = null,
+                    highKcal = null,
+                    assumption = "Found online: ${item.searchName ?: item.name}" + (if (sites.isNotEmpty()) " ($sites)" else "") +
+                        if (found.problems.isNotEmpty()) " · check: ${found.problems.first()}" else "",
+                    published = true,
+                )
+            }
+        }
+        return Resolved(items, matched)
+    }
+
     /**
      * For each home-food item, asks the model which databank row is the same dish (from a short candidate list
      * found locally). Returns item index -> row id. Text only, no search: cheap and fast.
@@ -127,7 +208,7 @@ class NutritionLookup(private val gemini: GeminiClient) {
         if (candidates.all { it.isEmpty() }) return emptyMap()
         val list = items.mapIndexed { i, item ->
             val options = candidates[i].joinToString("\n") { "   - ${it.id}: ${it.name}" }.ifEmpty { "   (none)" }
-            "${i + 1}. ${item.name} (${item.grams.toInt()} g)\n$options"
+            "${i + 1}. ${item.name}" + (item.searchName?.let { " [$it]" } ?: "") + " (${item.grams.toInt()} g)\n$options"
         }.joinToString("\n")
         val reply = gemini.text(PICK_PROMPT.replace("{ITEMS}", list))
         return AiParsing.picks(reply.text, candidates.mapIndexed { i, c -> i to c.map { it.id }.toSet() }.toMap())
@@ -201,6 +282,7 @@ class NutritionLookup(private val gemini: GeminiClient) {
     )
 
     private companion object {
+        const val MAX_WEB_ITEMS = 5
         const val SCHEMA = """{
   "found": true or false,
   "product_name": string, "brand": string, "variant": string (flavour/type exactly as on the pack),
@@ -230,6 +312,16 @@ Write a short plain-text report:
 - The web address of each page.
 Copy numbers only from pages. Never estimate or use typical values for similar products.
 If no page shows this product's nutrition values, reply with only: NOT_FOUND"""
+
+        const val FOOD_RESEARCH_PROMPT = """Find reliable nutrition values per 100 g for this food, as eaten: {FOOD}
+
+Search the web. Prefer, in this order: IFCT 2017 / NIN (India), INDB (Anuvaad, cooked Indian recipes),
+USDA FoodData Central, UK CoFID, then established nutrition databases (Nutritionix, HealthifyMe, FatSecret India).
+Pick the entry that matches the preparation: cooked vs raw, with oil or ghee for Indian cooked dishes.
+
+Write a short plain-text report: the entry name used, energy (kcal), protein, carbohydrate, sugar, fat, saturated fat,
+fibre and sodium per 100 g, exactly as the page shows them, and the web address of each page.
+Copy numbers only from pages; never estimate. If no reliable page has this food, reply with only: NOT_FOUND"""
 
         const val EXTRACT_PROMPT = """Below is a research report about one packaged food product sold in India.
 Turn it into JSON. Use ONLY numbers written in the report. Do not add, estimate or correct anything.
@@ -315,17 +407,22 @@ Rules:
 5. kcal_low and kcal_high: a realistic range for this item given what cannot be seen (oil, hidden portions).
 6. assumption: one short line with what you assumed (e.g. "1 tsp oil in tadka", "2 phulkas under the dal").
 7. Do not invent items you cannot see or that the eater did not mention.
-8. BRANDED OR UNUSUAL PRODUCTS (a supplement, protein or greens powder, health drink, packaged snack, anything named by
-   brand such as "Qbit Green", "Yakult", "Horlicks"): keep the exact product name the eater used as "name". Never replace it
-   with a generic food (not "green vegetable juice"). Set "lookup" to a web-search phrase for the product, e.g.
-   "Qbit Green superfood powder nutrition facts". For a powder mixed in water, "grams" is the powder only
-   (1 scoop or sachet as the eater says; water has no calories). Give your best guess for the numbers anyway.
-   For ordinary home food, "lookup" is null.
+8. ROUTING. The app looks every item up in a food databank (INDB cooked Indian recipes, IFCT 2017) or on the web; your
+   own numbers are only the last fallback. So for each item also give:
+   - "kind": "branded" for any named product (supplement, protein or greens powder, health drink, packaged or
+     restaurant-chain item, e.g. "Qbit Green", "Yakult", "Horlicks", "Amul Kool"); "dish" for a cooked or mixed
+     preparation (dal tadka, bhindi sabzi, poha, sandwich); "food" for a single plain food (walnut, banana, milk,
+     boiled egg, phulka, curd).
+   - "search_name": the plain, specific name to look up. Dish or food: the standard English name with the Indian name
+     in brackets and the cooking state, e.g. "Toor dal tadka (arhar dal)", "Walnut, raw", "Phulka (whole wheat roti)",
+     "Okra stir-fry (bhindi sabzi)". Branded: brand + product + "nutrition facts".
+   - Keep a branded product's exact name as "name"; never replace it with a generic food (not "green vegetable juice").
+   - For a powder mixed in water, "grams" is the powder only (scoops or sachets as the eater says; water has 0 kcal).
 
 Reply with ONLY this JSON:
 {"items": [{"name": "Dal tadka", "grams": 150, "kcal": n, "protein_g": n, "carbs_g": n, "fat_g": n,
   "saturated_fat_g": n, "sugar_g": n, "fiber_g": n, "sodium_mg": n, "kcal_low": n, "kcal_high": n, "assumption": "...",
-  "lookup": null}]}
+  "kind": "dish", "search_name": "Toor dal tadka (arhar dal)"}]}
 Use grams for every item, including drinks (1 ml = 1 g). If you see no food, reply {"items": []}"""
 
         const val IDENTIFY_PROMPT = """The photo shows the front of a packaged food or drink sold in India.

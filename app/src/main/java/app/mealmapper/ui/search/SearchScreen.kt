@@ -44,7 +44,12 @@ import app.mealmapper.ui.theme.tabular
 
 /** Log any food by name from the offline databank. Hinglish works: "daal", "sabji", "dahi". */
 @Composable
-fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: String, slot: MealSlot, day: LocalDate) -> Unit) {
+fun SearchScreen(
+    db: FoodDb,
+    onBack: () -> Unit,
+    onPick: (id: String, note: String, slot: MealSlot, day: LocalDate) -> Unit,
+    onWeb: (name: String, slot: MealSlot, day: LocalDate) -> Unit,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     var slot by rememberSaveable { mutableStateOf(mealSlotFor(LocalTime.now())) }
     var slotReason by rememberSaveable { mutableStateOf(SlotReason.TIME) }
@@ -79,10 +84,15 @@ fun SearchScreen(db: FoodDb, onBack: () -> Unit, onPick: (id: String, note: Stri
             when {
                 foods == null -> Text("Loading the databank…", Modifier.padding(top = 16.dp))
                 query.isNotBlank() && results.isEmpty() -> Text(
-                    "Nothing found. Try another spelling, or use Say or type what you ate.",
+                    "Not in the databank. Try another spelling, or look it up online.",
                     Modifier.padding(top = 16.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (query.trim().length >= 3) {
+                TextButton(onClick = { onWeb(query.trim(), slot, day) }) {
+                    Text(if (results.isEmpty()) "Look up \"${query.trim()}\" online" else "Not the right one? Look it up online")
+                }
             }
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(results, key = { it.id }) { food ->

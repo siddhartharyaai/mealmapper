@@ -398,8 +398,9 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
                 "Estimate, not measured. Gemini estimated each item from the photo and your note using typical restaurant " +
                     "values; published chain values are used where found. Fix the grams if you know them."
             } else {
-                "Estimate, not measured. Gemini estimated the grams from the photo and your note. Where it found the same " +
-                    "dish in the food databank (INDB/IFCT), those values are used. Fix the grams if you know them."
+                "Grams are estimated from your photo and words; fix them if you know. Values per item come from, in order: " +
+                    "the product's label online, the food databank (INDB/IFCT), reliable web sources, and only then Gemini's " +
+                    "own estimate. Each item says which."
             },
             Modifier.padding(12.dp),
             style = MaterialTheme.typography.bodySmall,
@@ -477,6 +478,13 @@ private fun MealReview(form: MealForm, vm: ReviewViewModel) {
                             )
                             TextButton(onClick = { vm.toggleRowDb(i) }) { Text(if (row.useDb) "Use AI" else "Use databank") }
                         }
+                    }
+                    if (row.db == null && !row.published) {
+                        Text(
+                            "Values: AI estimate · not in the databank, not found online",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
                     }
                     row.assumption?.let {
                         if (row.published) {

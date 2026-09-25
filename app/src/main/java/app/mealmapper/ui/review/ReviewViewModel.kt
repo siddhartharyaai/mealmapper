@@ -58,6 +58,8 @@ sealed interface ReviewRequest {
     data class Meal(val photos: List<Uri>, override val note: String, val restaurant: Boolean, val restaurantName: String?) : ReviewRequest
     /** A food picked from the databank search. */
     data class Food(val id: String, override val note: String) : ReviewRequest
+    /** A food not in the databank: reliable per-100 g values from the web (IFCT, INDB, USDA, CoFID). */
+    data class WebFood(val name: String, override val note: String) : ReviewRequest
     /** Menu photos (one per page): top picks for the calories left today. */
     data class Menu(val photos: List<Uri>, override val note: String, val restaurantName: String?) : ReviewRequest
 }
@@ -213,7 +215,7 @@ class ReviewViewModel(
         is ReviewRequest.Barcode -> request.code
         is ReviewRequest.Label -> request.barcode
         is ReviewRequest.Web -> request.barcode
-        is ReviewRequest.Meal, is ReviewRequest.Menu, is ReviewRequest.Food -> null
+        is ReviewRequest.Meal, is ReviewRequest.Menu, is ReviewRequest.Food, is ReviewRequest.WebFood -> null
     }
 
     init {
@@ -240,6 +242,7 @@ class ReviewViewModel(
                 is ReviewRequest.Meal -> mealFlow(request)
                 is ReviewRequest.Menu -> menuFlow(request)
                 is ReviewRequest.Food -> foodFlow(request.id)
+                is ReviewRequest.WebFood -> webFoodFlow(request.name)
             }
         }
     }
@@ -307,26 +310,11 @@ class ReviewViewModel(
         val estimated = runLookup {
             c.nutritionLookup.meal(jpegs(meal.photos), meal.note, meal.restaurant, meal.restaurantName, kitchen)
         } ?: return
-        // Named products (supplements, powders, branded drinks) get a real web lookup instead of a guess.
-        val products = estimated.filter { it.lookup != null }
-        val items = if (products.isEmpty()) {
-            estimated
-        } else {
-            _state.value = ReviewState.Loading("Searching the web for ${products.joinToString { it.name }}…")
-            runLookup { c.nutritionLookup.lookUpProducts(estimated) } ?: return
-        }
-        // Home food: swap the AI's own numbers for databank values where the AI confirms the same dish.
-        var matched: Map<Int, DbFood> = emptyMap()
-        if (!restaurant) {
-            _state.value = ReviewState.Loading("Matching to the food databank…")
-            matched = runCatching {
-                val foods = c.foodDb.all()
-                // Items with label values from the web are not matched to the databank.
-                val candidates = items.map { if (it.published) emptyList() else FoodSearch.candidates(foods, it.name) }
-                c.nutritionLookup.pickFromDb(items, candidates).mapNotNull { (i, id) -> foods.firstOrNull { it.id == id }?.let { i to it } }.toMap()
-            }.getOrElse { if (it is CancellationException) throw it else emptyMap() }
-        }
-        showMeal(items, restaurant, matched)
+        // Source ladder: product label on the web -> databank -> reliable web values -> AI estimate (labelled).
+        val resolved = runLookup {
+            c.nutritionLookup.resolve(estimated, c.foodDb.all(), restaurant) { _state.value = ReviewState.Loading(it) }
+        } ?: return
+        showMeal(resolved.items, restaurant, resolved.matched)
     }
 
     private fun showMeal(items: List<AiParsing.MealItem>, restaurant: Boolean, matched: Map<Int, DbFood> = emptyMap()) {
@@ -383,6 +371,15 @@ class ReviewViewModel(
         f.copy(pieceCount = c, pieceSize = size, amountText = if (c > 0) p.grams(c, size).fmt() else "", amountFromNote = null)
     }
 
+    private suspend fun webFoodFlow(name: String) {
+        knownName = name
+        _state.value = ReviewState.Loading("Searching reliable sources for $name…")
+        when (val outcome = runLookup { c.nutritionLookup.webFood(name) } ?: return) {
+            is LookupOutcome.Found -> show(outcome.product.copy(name = name), outcome.source, outcome.problems)
+            is LookupOutcome.NotFound -> notFound(outcome.reason, webTried = true)
+        }
+    }
+
     private suspend fun foodFlow(id: String) {
         _state.value = ReviewState.Loading("Opening the databank…")
         val food = c.foodDb.byId(id)
@@ -404,7 +401,7 @@ class ReviewViewModel(
         val now = eatenAt(form.slot, form.day)
         val entries = form.rows.filter { it.include }.mapIndexed { i, row ->
             val tag = when {
-                row.published -> "published"
+                row.published -> "sourced"
                 row.useDb && row.db != null -> row.db.source
                 form.restaurant -> "restaurant est."
                 else -> "est."

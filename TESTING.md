@@ -1,4 +1,4 @@
-# Meal Mapper: full test (version 1.4.0)
+# Meal Mapper: full test (version 1.5.0)
 
 About 60 minutes, in one sitting, plus the two-week meal check in Part H. Do the parts in order.
 Write down each FAIL with a screenshot. Pass = every step marked PASS, or the fail is explained in the notes.
@@ -26,6 +26,10 @@ Before you start: install the new APK over the old one (your settings, key and h
 - Named products: say "pre breakfast, 1 scoop Qbit Green in water and 2 soaked walnuts". Qbit Green keeps its name
   and shows "Found online: …" with sites, or "Not found online … Check the pack". It is never renamed to a generic juice.
 - Save a meal with 2+ items: no "start time must not be in the future" error.
+- Source on every row: say "2 phulka, 1 katori toor dal, 1 bowl quinoa salad, 1 scoop Qbit Green in water".
+  Expect phulka and dal "Values: … · INDB/IFCT"; quinoa salad "Found online: …"; Qbit Green "Found online" or
+  "Not found online"; any row with no source says "Values: AI estimate".
+- Search foods: type a food the databank lacks (e.g. "kombucha"): "Look up online" gives values with sites.
 PASS if all behave as described.
 
 ## B. Packaged food (10 min)

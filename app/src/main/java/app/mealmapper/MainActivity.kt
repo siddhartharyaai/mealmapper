@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
                             db = container.foodDb,
                             onBack = { nav.popBackStack() },
                             onPick = { id, note, slot, day -> nav.navigate(Routes.review("food", code = id, note = note, slot = slot, day = day)) },
+                            onWeb = { name, slot, day -> nav.navigate(Routes.review("webfood", name = name, slot = slot, day = day)) },
                         )
                     }
                     composable(Routes.HISTORY) {
@@ -164,6 +165,7 @@ class MainActivity : ComponentActivity() {
                             "meal" -> ReviewRequest.Meal(photos, note, restaurant = entry.arg("place") == "restaurant", restaurantName = name)
                             "menu" -> ReviewRequest.Menu(photos, note, restaurantName = name)
                             "food" -> ReviewRequest.Food(code.orEmpty(), note)
+                            "webfood" -> ReviewRequest.WebFood(name.orEmpty(), note)
                             else -> ReviewRequest.Barcode(code.orEmpty(), note)
                         }
                         val vm: ReviewViewModel = viewModel(

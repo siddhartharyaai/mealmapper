@@ -76,6 +76,10 @@ object AiParsing {
         val published: Boolean = false,
         /** Web-search phrase for a branded or unusual product the model does not know reliably; null for home food. */
         val lookup: String? = null,
+        /** "branded", "dish" or "food": decides where the values come from (see NutritionLookup.resolve). */
+        val kind: String? = null,
+        /** Plain, specific name for the databank and web ("Toor dal tadka (arhar dal)", "Walnut, raw"). */
+        val searchName: String? = null,
     )
 
     /**
@@ -107,7 +111,10 @@ object AiParsing {
                 lowKcal = o.num("kcal_low"),
                 highKcal = o.num("kcal_high"),
                 assumption = o.str("assumption"),
-                lookup = o.str("lookup")?.trim()?.takeIf { it.isNotEmpty() && it != "null" },
+                kind = o.str("kind")?.lowercase(),
+                searchName = o.str("search_name"),
+                lookup = o.str("lookup")?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
+                    ?: o.str("search_name")?.takeIf { o.str("kind").equals("branded", ignoreCase = true) },
             )
         }
     }

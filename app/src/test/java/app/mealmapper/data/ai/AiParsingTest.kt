@@ -155,4 +155,15 @@ class AiParsingTest {
         assertEquals("Qbit Green superfood powder nutrition facts", items[0].lookup)
         assertNull(items[1].lookup)
     }
+
+    @Test fun routingFields() {
+        val text = """{"items":[
+            {"name":"Qbit Green","grams":5,"kcal":18,"protein_g":1,"carbs_g":3,"fat_g":0.2,"kind":"branded","search_name":"Qbit Green powder nutrition facts"},
+            {"name":"Dal tadka","grams":150,"kcal":170,"protein_g":8,"carbs_g":20,"fat_g":6,"kind":"dish","search_name":"Toor dal tadka (arhar dal)"}]}"""
+        val items = AiParsing.meal(text)
+        assertEquals("branded", items[0].kind)
+        assertEquals("Qbit Green powder nutrition facts", items[0].lookup) // branded -> web lookup even without "lookup"
+        assertEquals("Toor dal tadka (arhar dal)", items[1].searchName)
+        assertNull(items[1].lookup)
+    }
 }
