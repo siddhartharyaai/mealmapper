@@ -304,16 +304,25 @@ class ReviewViewModel(
         val profile = c.profile.profile.value
         val kitchen = Kitchen(profile.katori, profile.oilGramsPerPersonDay)
         val restaurant = meal.restaurant || meal.restaurantName != null
-        val items = runLookup {
+        val estimated = runLookup {
             c.nutritionLookup.meal(jpegs(meal.photos), meal.note, meal.restaurant, meal.restaurantName, kitchen)
         } ?: return
+        // Named products (supplements, powders, branded drinks) get a real web lookup instead of a guess.
+        val products = estimated.filter { it.lookup != null }
+        val items = if (products.isEmpty()) {
+            estimated
+        } else {
+            _state.value = ReviewState.Loading("Searching the web for ${products.joinToString { it.name }}…")
+            runLookup { c.nutritionLookup.lookUpProducts(estimated) } ?: return
+        }
         // Home food: swap the AI's own numbers for databank values where the AI confirms the same dish.
         var matched: Map<Int, DbFood> = emptyMap()
         if (!restaurant) {
             _state.value = ReviewState.Loading("Matching to the food databank…")
             matched = runCatching {
                 val foods = c.foodDb.all()
-                val candidates = items.map { FoodSearch.candidates(foods, it.name) }
+                // Items with label values from the web are not matched to the databank.
+                val candidates = items.map { if (it.published) emptyList() else FoodSearch.candidates(foods, it.name) }
                 c.nutritionLookup.pickFromDb(items, candidates).mapNotNull { (i, id) -> foods.firstOrNull { it.id == id }?.let { i to it } }.toMap()
             }.getOrElse { if (it is CancellationException) throw it else emptyMap() }
         }
@@ -404,8 +413,8 @@ class ReviewViewModel(
                 clientId = UUID.randomUUID().toString(),
                 name = "${row.name} · ${row.grams!!.roundToInt()} g · $tag",
                 slot = form.slot,
-                // Seconds apart so entries never share a start time.
-                eatenAt = now.plusSeconds(i.toLong()),
+                // Seconds apart so entries never share a start time; earlier, never later (no future times).
+                eatenAt = now.minusSeconds(i.toLong()),
                 nutrients = row.nutrients!!,
             )
         }

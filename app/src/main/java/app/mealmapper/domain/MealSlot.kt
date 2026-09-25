@@ -5,27 +5,31 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 
 /**
- * The four meals Health Connect (and so Google Health) knows. "Evening" food (chai and a snack at 5) is SNACK.
- * [typical] is the time used when a meal is logged late, so Google Health shows lunch at lunchtime.
+ * Meals as the user thinks of them. Health Connect knows only breakfast, lunch, dinner and snack, so
+ * PRE_BREAKFAST (soaked nuts, a green drink on an empty stomach) and SNACK are both saved there as snacks;
+ * the time keeps the pre-breakfast one in its place. [typical] is the time used when a meal is logged late.
  */
 enum class MealSlot(val label: String, val typical: LocalTime) {
+    PRE_BREAKFAST("Pre-breakfast", LocalTime.of(6, 30)),
     BREAKFAST("Breakfast", LocalTime.of(8, 30)),
     LUNCH("Lunch", LocalTime.of(13, 30)),
     SNACK("Snack", LocalTime.of(17, 30)),
     DINNER("Dinner", LocalTime.of(20, 30)),
 }
 
-private val BREAKFAST_START = LocalTime.of(5, 0)
+private val EARLY_START = LocalTime.of(5, 0)
+private val BREAKFAST_START = LocalTime.of(7, 30)
 private val LUNCH_START = LocalTime.of(12, 0)
 private val SNACK_START = LocalTime.of(16, 0)
 private val DINNER_START = LocalTime.of(19, 0)
 
 /**
- * Default meal for a local time: breakfast 5-12, lunch 12-4, evening snack 4-7, dinner 7 onwards
- * (after midnight is still the late dinner). Only a default: the user taps another meal to change it.
+ * Default meal for a local time: pre-breakfast 5-7:30, breakfast 7:30-12, lunch 12-4, evening snack 4-7,
+ * dinner 7 onwards (after midnight is still the late dinner). Only a default: the user taps to change it.
  */
 fun mealSlotFor(time: LocalTime): MealSlot = when {
-    time < BREAKFAST_START -> MealSlot.DINNER
+    time < EARLY_START -> MealSlot.DINNER
+    time < BREAKFAST_START -> MealSlot.PRE_BREAKFAST
     time < LUNCH_START -> MealSlot.BREAKFAST
     time < SNACK_START -> MealSlot.LUNCH
     time < DINNER_START -> MealSlot.SNACK
@@ -33,6 +37,7 @@ fun mealSlotFor(time: LocalTime): MealSlot = when {
 }
 
 private val SPOKEN: List<Pair<Regex, MealSlot>> = listOf(
+    Regex("pre[ -]?breakfast|before breakfast|empty stomach|khali pet|खाली पेट|first thing") to MealSlot.PRE_BREAKFAST,
     Regex("breakfast|nashta|naashta|nasta|नाश्ता|subah") to MealSlot.BREAKFAST,
     Regex("lunch|dopahar|दोपहर") to MealSlot.LUNCH,
     Regex("dinner|supper|raat|रात") to MealSlot.DINNER,

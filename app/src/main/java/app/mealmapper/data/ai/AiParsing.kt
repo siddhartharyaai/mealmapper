@@ -74,6 +74,8 @@ object AiParsing {
         val assumption: String?,
         /** True when the values are a restaurant's published ones, found by Google Search. */
         val published: Boolean = false,
+        /** Web-search phrase for a branded or unusual product the model does not know reliably; null for home food. */
+        val lookup: String? = null,
     )
 
     /**
@@ -105,6 +107,7 @@ object AiParsing {
                 lowKcal = o.num("kcal_low"),
                 highKcal = o.num("kcal_high"),
                 assumption = o.str("assumption"),
+                lookup = o.str("lookup")?.trim()?.takeIf { it.isNotEmpty() && it != "null" },
             )
         }
     }

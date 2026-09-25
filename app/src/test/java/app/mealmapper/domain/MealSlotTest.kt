@@ -9,7 +9,9 @@ import org.junit.Test
 class MealSlotTest {
     private fun at(h: Int, m: Int = 0) = mealSlotFor(LocalTime.of(h, m))
 
-    @Test fun earlyMorningChaiIsBreakfast() = assertEquals(MealSlot.BREAKFAST, at(5))
+    @Test fun earlyMorningIsPreBreakfast() = assertEquals(MealSlot.PRE_BREAKFAST, at(5))
+    @Test fun sevenIsStillPreBreakfast() = assertEquals(MealSlot.PRE_BREAKFAST, at(7, 29))
+    @Test fun breakfastFromSevenThirty() = assertEquals(MealSlot.BREAKFAST, at(7, 30))
     @Test fun breakfastUntilNoon() = assertEquals(MealSlot.BREAKFAST, at(11, 59))
     @Test fun lunchFromNoon() = assertEquals(MealSlot.LUNCH, at(12))
     @Test fun lateMumbaiLunchAtThree() = assertEquals(MealSlot.LUNCH, at(15, 30))
@@ -26,6 +28,8 @@ class MealSlotTest {
         assertEquals(MealSlot.SNACK, mealSlotIn("shaam ki chai and 2 biscuits"))
         assertEquals(MealSlot.DINNER, mealSlotIn("रात को दाल चावल"))
         assertNull(mealSlotIn("2 roti, 1 katori dal"))
+        assertEquals(MealSlot.PRE_BREAKFAST, mealSlotIn("pre breakfast: soaked walnuts and Qbit green"))
+        assertEquals(MealSlot.PRE_BREAKFAST, mealSlotIn("khali pet 4 almonds"))
     }
 
     @Test fun firstNamedMealWins() = assertEquals(MealSlot.LUNCH, mealSlotIn("lunch leftovers from dinner"))

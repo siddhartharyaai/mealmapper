@@ -93,6 +93,33 @@ class NutritionLookup(private val gemini: GeminiClient) {
     }
 
     /**
+     * Branded or unusual products in a meal (Qbit Green, a protein powder) are looked up on the web like a
+     * barcode miss: Google Search for the product's own label values. Found: the label values replace the
+     * guess (grams stay as the eater said). Not found: the guess stays, clearly marked. Home food is untouched.
+     */
+    suspend fun lookUpProducts(items: List<AiParsing.MealItem>): List<AiParsing.MealItem> = items.map { item ->
+        val query = item.lookup ?: return@map item
+        val outcome = runCatching { web(barcode = null, knownName = query, note = "", frontPhoto = null) }.getOrNull()
+        if (outcome is LookupOutcome.Found) {
+            val p = outcome.product
+            val serving = p.servingSize
+            val sites = (outcome.source as? ProductSource.Web)?.sites.orEmpty().take(2).joinToString()
+            item.copy(
+                per100 = p.per100,
+                grams = if (item.grams > 0) item.grams else serving ?: 100.0,
+                lowKcal = null,
+                highKcal = null,
+                assumption = "Found online: ${p.name}" + (if (sites.isNotEmpty()) " ($sites)" else "") +
+                    (serving?.let { " · 1 serving = ${Math.round(it)} ${p.basis.unit}" } ?: ""),
+                published = true,
+                lookup = null,
+            )
+        } else {
+            item.copy(assumption = "Not found online, so this is the AI's guess. Check the pack. " + item.assumption.orEmpty())
+        }
+    }
+
+    /**
      * For each home-food item, asks the model which databank row is the same dish (from a short candidate list
      * found locally). Returns item index -> row id. Text only, no search: cheap and fast.
      */
@@ -288,10 +315,17 @@ Rules:
 5. kcal_low and kcal_high: a realistic range for this item given what cannot be seen (oil, hidden portions).
 6. assumption: one short line with what you assumed (e.g. "1 tsp oil in tadka", "2 phulkas under the dal").
 7. Do not invent items you cannot see or that the eater did not mention.
+8. BRANDED OR UNUSUAL PRODUCTS (a supplement, protein or greens powder, health drink, packaged snack, anything named by
+   brand such as "Qbit Green", "Yakult", "Horlicks"): keep the exact product name the eater used as "name". Never replace it
+   with a generic food (not "green vegetable juice"). Set "lookup" to a web-search phrase for the product, e.g.
+   "Qbit Green superfood powder nutrition facts". For a powder mixed in water, "grams" is the powder only
+   (1 scoop or sachet as the eater says; water has no calories). Give your best guess for the numbers anyway.
+   For ordinary home food, "lookup" is null.
 
 Reply with ONLY this JSON:
 {"items": [{"name": "Dal tadka", "grams": 150, "kcal": n, "protein_g": n, "carbs_g": n, "fat_g": n,
-  "saturated_fat_g": n, "sugar_g": n, "fiber_g": n, "sodium_mg": n, "kcal_low": n, "kcal_high": n, "assumption": "..."}]}
+  "saturated_fat_g": n, "sugar_g": n, "fiber_g": n, "sodium_mg": n, "kcal_low": n, "kcal_high": n, "assumption": "...",
+  "lookup": null}]}
 Use grams for every item, including drinks (1 ml = 1 g). If you see no food, reply {"items": []}"""
 
         const val IDENTIFY_PROMPT = """The photo shows the front of a packaged food or drink sold in India.

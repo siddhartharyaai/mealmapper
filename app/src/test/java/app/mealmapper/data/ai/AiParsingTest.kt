@@ -146,4 +146,13 @@ class AiParsingTest {
         val picks = AiParsing.picks(text, mapOf(0 to setOf("ASC107"), 1 to setOf("X"), 2 to setOf("Y")))
         assertEquals(mapOf(0 to "ASC107"), picks)
     }
+
+    @Test fun brandedItemCarriesLookup() {
+        val text = """{"items":[
+            {"name":"Qbit Green","grams":5,"kcal":18,"protein_g":1,"carbs_g":3,"fat_g":0.2,"lookup":"Qbit Green superfood powder nutrition facts"},
+            {"name":"Soaked walnut","grams":2,"kcal":13,"protein_g":0.3,"carbs_g":0.3,"fat_g":1.3,"lookup":null}]}"""
+        val items = AiParsing.meal(text)
+        assertEquals("Qbit Green superfood powder nutrition facts", items[0].lookup)
+        assertNull(items[1].lookup)
+    }
 }

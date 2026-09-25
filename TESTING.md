@@ -1,4 +1,4 @@
-# Meal Mapper: full test (version 1.3.0)
+# Meal Mapper: full test (version 1.4.0)
 
 About 60 minutes, in one sitting, plus the two-week meal check in Part H. Do the parts in order.
 Write down each FAIL with a screenshot. Pass = every step marked PASS, or the fail is explained in the notes.
@@ -21,7 +21,12 @@ Before you start: install the new APK over the old one (your settings, key and h
 - Forgot yesterday: on any logging screen tap Yesterday (or 📅 Other day, up to 30 days back), pick Dinner, log it.
   The confirmation says "· Thu 24 Sep"; History shows it under that day; Google Health shows it on that day at 8:30 pm,
   and that day's calories and macros include it; today's ticker does not change.
-PASS if all five behave as described.
+- Pre-breakfast: before 7:30 am the chip is Pre-breakfast; "khali pet" or "pre breakfast" also selects it.
+  Google Health files it as a snack at that early time (it has no pre-breakfast type).
+- Named products: say "pre breakfast, 1 scoop Qbit Green in water and 2 soaked walnuts". Qbit Green keeps its name
+  and shows "Found online: …" with sites, or "Not found online … Check the pack". It is never renamed to a generic juice.
+- Save a meal with 2+ items: no "start time must not be in the future" error.
+PASS if all behave as described.
 
 ## B. Packaged food (10 min)
 5. Scan barcode: a pack Open Food Facts knows. PASS if Review shows the nutrition facts first,

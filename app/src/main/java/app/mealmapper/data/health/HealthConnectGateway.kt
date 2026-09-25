@@ -18,6 +18,7 @@ import app.mealmapper.domain.DayTotals
 import app.mealmapper.domain.MealSlot
 import app.mealmapper.domain.NutritionEntry
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -51,7 +52,9 @@ class HealthConnectGateway(private val context: Context) {
     /** Inserts the entry. Writing the same clientId again replaces the earlier record. */
     suspend fun write(entry: NutritionEntry) {
         val zone = ZoneId.systemDefault()
-        val start = entry.eatenAt
+        // Health Connect rejects a start time in the future, even by a second. Never write one.
+        val latest = Instant.now().minusSeconds(1)
+        val start = if (entry.eatenAt.isAfter(latest)) latest else entry.eatenAt
         // Health Connect needs end > start. One minute is enough for a meal log.
         val end = start.plus(Duration.ofMinutes(1))
         val n = entry.nutrients
@@ -130,6 +133,7 @@ class HealthConnectGateway(private val context: Context) {
 }
 
 private fun MealSlot.toHealthConnect(): Int = when (this) {
+    MealSlot.PRE_BREAKFAST -> MealType.MEAL_TYPE_SNACK // Health Connect has no pre-breakfast type
     MealSlot.BREAKFAST -> MealType.MEAL_TYPE_BREAKFAST
     MealSlot.LUNCH -> MealType.MEAL_TYPE_LUNCH
     MealSlot.SNACK -> MealType.MEAL_TYPE_SNACK
