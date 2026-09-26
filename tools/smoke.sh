@@ -73,7 +73,7 @@ tap_home() {
 
 on_screen() {
   # The text may be below the fold on a small emulator: scroll down a little between looks.
-  for _ in 1 2 3; do
+  for _ in 1 2 3 4 5 6 7 8; do
     adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
     adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
     grep -q "$1" "$OUT/ui.xml" && return 0
