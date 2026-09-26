@@ -105,68 +105,50 @@ run() {
   adb shell am start -W -n "$PKG/.MainActivity"
   sleep 6
   if crashed; then echo "CRASH on start ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  adb shell screencap -p /sdcard/home.png; adb pull /sdcard/home.png "$OUT/$label-home.png" >/dev/null
-  tap_text "Scan barcode" || return 1
-  sleep 8
-  adb shell screencap -p /sdcard/scan.png; adb pull /sdcard/scan.png "$OUT/$label-scan.png" >/dev/null
+  adb shell screencap -p /sdcard/home.png; adb pull /sdcard/home.png "$OUT/$label-chat.png" >/dev/null
+  on_screen "Tell me what you ate" || return 1
+
+  # History and back.
+  tap_text "History" || return 1
+  sleep 3
+  if crashed; then echo "CRASH on History ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  adb shell input keyevent 4; sleep 3
+
+  # Settings, including the memory section, and back.
+  tap_text "Settings" || return 1
+  sleep 3
+  if crashed; then echo "CRASH on Settings ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  on_screen "Your foods and meals" || return 1
+  adb shell input keyevent 4; sleep 3
+
+  # Attach menu -> barcode scanner, then back to the chat (Back may first close the permission dialog).
+  tap_text "+" || return 1
+  sleep 2
+  tap_text "Scan a barcode" || return 1
+  sleep 6
   if crashed; then echo "CRASH on Scan ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  # Back to Home. Without camera permission the first Back only closes the permission dialog.
   for _ in 1 2 3; do
     adb shell input keyevent 4; sleep 3
-    tap_text "Settings" && break
+    on_screen "What did you eat" >/dev/null && break
   done
-  [ -s "$OUT/tap.txt" ] || return 1
-  sleep 4
-  if crashed; then echo "CRASH on Settings ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  adb shell input keyevent 4; sleep 3
-  tap_home "Upload a photo" || return 1
-  sleep 4
-  if crashed; then echo "CRASH on Upload ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  adb shell input keyevent 4; sleep 3
-  tap_home "Take a photo" || return 1
-  sleep 4
-  if crashed; then echo "CRASH on Take a photo ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  adb shell input keyevent 4; sleep 3
-  tap_home "History" || return 1
-  sleep 4
-  if crashed; then echo "CRASH on History ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  # Offline databank: search "roti", open it, set 2 rotis with the count control. No network needed.
-  adb shell input keyevent 4; sleep 3
-  tap_home "Search foods" || return 1
-  sleep 3
-  tap_text "Food" || return 1
-  adb shell input text roti; sleep 4
-  # Hide the keyboard: Back closes it only when it is showing (otherwise Back would leave the screen).
+
+  # Send a message with no Gemini key: a clear message, no crash.
+  tap_text "What did you eat?" || return 1
+  adb shell input text "2%sroti%sand%sdal%sfor%slunch"
+  sleep 2
   adb shell dumpsys input_method | grep -q "mInputShown=true" && adb shell input keyevent 4
   sleep 1
-  adb shell screencap -p /sdcard/search.png; adb pull /sdcard/search.png "$OUT/$label-search.png" >/dev/null
-  if crashed; then echo "CRASH on Search ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  found=""
-  for _ in 1 2 3 4; do
-    tap_contains "Chapati/Roti" && { found=1; break; }
-    swipe_pct 45 80; sleep 1   # best match is at the top of the list
-  done
-  [ -n "$found" ] || { show_screen; return 1; }
-  sleep 4
-  if crashed; then echo "CRASH on databank Review ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  on_screen "Nutrition facts" || return 1
-  on_screen "How much did you eat" || return 1
-  swipe_pct 70 45; sleep 2
-  tap_text "+" && sleep 1 && tap_text "+" && sleep 2
-  adb shell screencap -p /sdcard/review.png; adb pull /sdcard/review.png "$OUT/$label-review.png" >/dev/null
-  on_screen "70 g\|2 rotis\|rotis" || return 1
-  if crashed; then echo "CRASH on count control ($label)"; cat "$OUT/crash.txt"; return 1; fi
-  # Voice without a key shows guidance, not a crash.
-  # Back to Home: Review -> Search -> Home (a keyboard may take one extra Back).
-  for _ in 1 2 3; do
-    adb shell input keyevent 4; sleep 3
-    tap_home "Say or type" && break
-  done
-  [ -s "$OUT/tap.txt" ] || return 1
-  sleep 3
-  on_screen "Set from the time" || return 1   # meal chips, pre-selected from the clock
+  tap_text "Send" || return 1
+  sleep 6
+  adb shell screencap -p /sdcard/sent.png; adb pull /sdcard/sent.png "$OUT/$label-sent.png" >/dev/null
+  if crashed; then echo "CRASH on Send ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  on_screen "Gemini API key" || return 1
+
+  # Mic with no Deepgram key: guidance, no crash.
+  tap_text "&#127897;" || return 1   # the mic emoji, as the UI dump encodes it
+  sleep 2
+  if crashed; then echo "CRASH on mic ($label)"; cat "$OUT/crash.txt"; return 1; fi
   on_screen "Deepgram" || return 1
-  if crashed; then echo "CRASH on Say or type ($label)"; cat "$OUT/crash.txt"; return 1; fi
   echo "OK: $label"
 }
 

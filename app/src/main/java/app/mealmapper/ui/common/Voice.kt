@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,12 +41,11 @@ import kotlinx.coroutines.launch
 private enum class VoiceState { IDLE, RECORDING, TRANSCRIBING }
 
 /**
- * Speak in Hindi, English or both in one sentence ("gatte ki sabzi with two wheat rotis"): no language switch.
- * Tap to start, tap to stop; Deepgram Nova-3 (multilingual) writes it down; the text lands in the field,
- * where it can be fixed before estimating. The recording is deleted after sending.
+ * The chat bar's mic: tap to talk (Hindi, English or both), tap again to stop. Deepgram Nova-3 multilingual writes
+ * it down and the text lands in the message box, where it can be fixed before sending. The recording is deleted.
  */
 @Composable
-fun VoiceInput(onText: (String) -> Unit, onUnavailable: (String) -> Unit, prompt: String = "Speak") {
+fun VoiceMic(onText: (String) -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
     val container = (context.applicationContext as MealMapperApp).container
     val hasKey by container.deepgramSettings.hasKey.collectAsStateWithLifecycle()
@@ -52,31 +53,29 @@ fun VoiceInput(onText: (String) -> Unit, onUnavailable: (String) -> Unit, prompt
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(VoiceState.IDLE) }
     var seconds by remember { mutableIntStateOf(0) }
-    var error by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) { onDispose { recorder.stopQuietly() } }
 
     fun startRecording() {
-        error = null
         runCatching { recorder.start() }
             .onSuccess { seconds = 0; state = VoiceState.RECORDING }
-            .onFailure { error = "Could not start the microphone." }
+            .onFailure { onError("Could not start the microphone.") }
     }
 
     fun stopAndSend() {
         val file = recorder.stop()
         if (file == null) {
             state = VoiceState.IDLE
-            error = "Nothing recorded. Hold the phone closer and try again."
+            onError("Nothing recorded. Hold the phone closer and try again.")
             return
         }
         state = VoiceState.TRANSCRIBING
         scope.launch {
             try {
                 val text = container.deepgram.transcribe(file)
-                if (text.isBlank()) error = "Deepgram heard no words. Try again a little louder." else onText(text)
+                if (text.isBlank()) onError("No words heard. Try again a little louder.") else onText(text)
             } catch (e: VoiceException) {
-                error = e.message
+                onError(e.message ?: "Voice failed. Try again.")
             } finally {
                 file.delete()
                 state = VoiceState.IDLE
@@ -85,7 +84,7 @@ fun VoiceInput(onText: (String) -> Unit, onUnavailable: (String) -> Unit, prompt
     }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startRecording() else onUnavailable("Microphone access is needed to speak your meal.")
+        if (granted) startRecording() else onError("Microphone access is needed to speak your meal.")
     }
 
     LaunchedEffect(state) {
@@ -96,36 +95,20 @@ fun VoiceInput(onText: (String) -> Unit, onUnavailable: (String) -> Unit, prompt
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        when {
-            !hasKey -> Text(
-                "Voice: add your Deepgram API key in Settings to speak meals in Hindi, English or both.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            state == VoiceState.RECORDING -> Button(
-                onClick = ::stopAndSend,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            ) { Text("■  Stop  ·  ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}") }
-            state == VoiceState.TRANSCRIBING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                Text("Writing it down…")
+    when (state) {
+        VoiceState.RECORDING -> Button(
+            onClick = ::stopAndSend,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+        ) { Text("■ ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}") }
+        VoiceState.TRANSCRIBING -> Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+        }
+        VoiceState.IDLE -> TextButton(onClick = {
+            when {
+                !hasKey -> onError("Add your Deepgram key in Settings to speak your meals.")
+                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> startRecording()
+                else -> permission.launch(Manifest.permission.RECORD_AUDIO)
             }
-            else -> OutlinedButton(
-                onClick = {
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                        startRecording()
-                    } else {
-                        permission.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("🎙  $prompt  ·  Hindi, English or both") }
-        }
-        if (state == VoiceState.RECORDING) {
-            Text("Listening… tap Stop when done.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-        }
-        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        }) { Text("🎙", style = MaterialTheme.typography.titleLarge) }
     }
 }

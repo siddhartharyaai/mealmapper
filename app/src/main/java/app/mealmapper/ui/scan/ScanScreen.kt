@@ -1,12 +1,5 @@
 package app.mealmapper.ui.scan
 
-import app.mealmapper.domain.MealSlot
-import app.mealmapper.domain.mealSlotFor
-import app.mealmapper.domain.mealSlotIn
-import app.mealmapper.ui.common.MealPicker
-import app.mealmapper.ui.common.SlotReason
-import java.time.LocalDate
-import java.time.LocalTime
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,7 +57,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 
 @Composable
-fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String, slot: MealSlot, day: LocalDate) -> Unit) {
+fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String) -> Unit) {
     val context = LocalContext.current
     var cameraAllowed by remember {
         mutableStateOf(
@@ -78,18 +71,13 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String, slot:
     }
     LaunchedEffect(Unit) { if (!cameraAllowed) permission.launch(Manifest.permission.CAMERA) }
 
-    // Typed before scanning: the scan navigates away as soon as it reads a code.
-    var note by rememberSaveable { mutableStateOf("") }
-    var slot by rememberSaveable { mutableStateOf(mealSlotFor(LocalTime.now())) }
-    var slotReason by rememberSaveable { mutableStateOf(SlotReason.TIME) }
-    var day by rememberSaveable { mutableStateOf(LocalDate.now()) }
     var typed by remember { mutableStateOf("") }
     var typedError by remember { mutableStateOf<String?>(null) }
     var torchOn by remember { mutableStateOf(false) }
 
     fun submitTyped() {
         val code = typed.filter(Char::isDigit)
-        if (isValidBarcode(code)) onBarcode(code, note.trim(), slot, day) else typedError = "That number does not look right. Check the digits under the barcode."
+        if (isValidBarcode(code)) onBarcode(code) else typedError = "That number does not look right. Check the digits under the barcode."
     }
 
     Scaffold { padding ->
@@ -110,20 +98,10 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String, slot:
                 }
             }
 
-            MealPicker(slot, slotReason, { slot = it; slotReason = SlotReason.CHOSEN }, day, { day = it })
-
-            OutlinedTextField(
-                value = note,
-                onValueChange = {
-                    note = it.take(80)
-                    if (slotReason != SlotReason.CHOSEN) mealSlotIn(note)?.let { s -> slot = s; slotReason = SlotReason.WORDS }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("What and how much (optional)") },
-                placeholder = { Text("half pack · 2 servings · 150 g · 1 glass") },
-                supportingText = { Text("Type it before you scan. Amounts in g, ml, pack or servings are used directly.") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            Text(
+                "Point at the barcode. The product lands in the chat, where you can say how much you had.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Box(
@@ -135,7 +113,7 @@ fun ScanScreen(onBack: () -> Unit, onBarcode: (code: String, note: String, slot:
                 contentAlignment = Alignment.Center,
             ) {
                 if (cameraAllowed) {
-                    BarcodeCamera(torchOn = torchOn, onBarcode = { onBarcode(it, note.trim(), slot, day) })
+                    BarcodeCamera(torchOn = torchOn, onBarcode = { onBarcode(it) })
                 } else {
                     Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(

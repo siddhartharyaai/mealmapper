@@ -80,6 +80,10 @@ object AiParsing {
         val kind: String? = null,
         /** Plain, specific name for the databank and web ("Toor dal tadka (arhar dal)", "Walnut, raw"). */
         val searchName: String? = null,
+        /** Restaurant name for kind "restaurant" (may be null when unknown). */
+        val restaurant: String? = null,
+        /** One serving in grams when a label or restaurant page gives it. */
+        val servingGrams: Double? = null,
     )
 
     /**
@@ -113,6 +117,7 @@ object AiParsing {
                 assumption = o.str("assumption"),
                 kind = o.str("kind")?.lowercase(),
                 searchName = o.str("search_name"),
+                restaurant = o.str("restaurant"),
                 lookup = o.str("lookup")?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
                     ?: o.str("search_name")?.takeIf { o.str("kind").equals("branded", ignoreCase = true) },
             )

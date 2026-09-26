@@ -8,6 +8,7 @@ import app.mealmapper.data.ai.NutritionLookup
 import app.mealmapper.data.health.HealthConnectGateway
 import app.mealmapper.data.log.LogStore
 import app.mealmapper.data.fooddb.FoodDb
+import app.mealmapper.data.memory.MemoryStore
 import app.mealmapper.data.voice.DeepgramClient
 import app.mealmapper.data.voice.DeepgramSettings
 import app.mealmapper.data.off.OpenFoodFactsClient
@@ -25,6 +26,7 @@ class AppContainer(context: Context) {
     val productCache: ProductCache by lazy { ProductCache(appContext) }
     val log: LogStore by lazy { LogStore(appContext) }
     val foodDb: FoodDb by lazy { FoodDb(appContext) }
+    val memory: MemoryStore by lazy { MemoryStore(appContext) }
     val deepgramSettings = DeepgramSettings(appContext)
     val deepgram: DeepgramClient by lazy { DeepgramClient(deepgramSettings) }
 }

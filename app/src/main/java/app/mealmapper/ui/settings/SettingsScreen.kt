@@ -37,6 +37,7 @@ import app.mealmapper.data.ai.GeminiClient
 import app.mealmapper.data.settings.Profile
 import app.mealmapper.data.settings.ProfileStore
 import app.mealmapper.data.voice.DeepgramClient
+import app.mealmapper.data.memory.MemoryStore
 import app.mealmapper.data.voice.DeepgramSettings
 import app.mealmapper.domain.ProfileRules
 import app.mealmapper.ui.common.fmt
@@ -48,6 +49,7 @@ fun SettingsScreen(
     gemini: GeminiClient,
     voice: DeepgramSettings,
     deepgram: DeepgramClient,
+    memory: MemoryStore,
     onBack: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
@@ -153,6 +155,9 @@ fun SettingsScreen(
             VoiceSection(voice, deepgram)
 
             HorizontalDivider()
+            MemorySection(memory)
+
+            HorizontalDivider()
             Text("Health Connect", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Check access, and write a test entry to confirm it reaches Google Health and Samsung Health.",
@@ -162,6 +167,52 @@ fun SettingsScreen(
             OutlinedButton(onClick = onHealthCheck, modifier = Modifier.fillMaxWidth()) { Text("Health Connect check") }
         }
     }
+}
+
+/** What the app has learnt: remembered foods and saved meals. Delete a wrong one so it is never reused. */
+@Composable
+private fun MemorySection(memory: MemoryStore) {
+    val state by memory.state.collectAsStateWithLifecycle()
+    var showAll by remember { mutableStateOf(false) }
+    Text("Your foods and meals", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Learnt from what you log, so repeats are instant and use the same values. Delete any that are wrong.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (state.meals.isEmpty() && state.foods.isEmpty()) {
+        Text("Nothing yet. Log a few meals in the chat.", style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+    state.meals.forEach { meal ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("🍽 ${meal.name}", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    meal.parts.joinToString { p -> state.foods.firstOrNull { it.id == p.foodId }?.name ?: "?" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { memory.deleteMeal(meal.id) }) { Text("Delete") }
+        }
+    }
+    val foods = state.foods.sortedByDescending { it.uses }
+    (if (showAll) foods else foods.take(8)).forEach { f ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(f.name, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "${f.per100.energyKcal.toInt()} kcal/100 ${f.basis} · usually ${f.usualQty.fmt()} ${f.usualUnit} · logged ${f.uses}×" +
+                        (if (f.source.isNotEmpty()) " · ${f.source}" else ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { memory.deleteFood(f.id) }) { Text("Delete") }
+        }
+    }
+    if (foods.size > 8) TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show fewer" else "Show all ${foods.size}") }
 }
 
 @Composable

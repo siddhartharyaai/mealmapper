@@ -1,5 +1,20 @@
 # Meal Mapper: Roadmap
 
+## 2.0: one chat (current)
+
+The six logging paths (barcode, photo, upload, say/type, search, menu) and their forms are replaced by one chat.
+The user says what they ate; the app answers with a log card; one tap logs it. See SPEC notes below.
+- Understanding: one Gemini call per message with the user's food memory, recent logs and the open card, so it
+  corrects misheard or misspelt words against the user's own history and edits the open card on corrections.
+- Values: memory (no lookup) -> label photo -> named product online -> restaurant values online (the restaurant's
+  own, else comparable dishes) -> databank (INDB/IFCT) -> reliable sites -> AI estimate. Every row shows its source.
+- Units: natural units with grams per unit (scoop, slice, katori, piece, cup, glass, serving, pack, g/ml).
+- Memory: every logged item is learnt (aliases, units, usual amount, meal counts). Saved meals by name.
+  Chips above the chat box: saved meals and foods logged at least twice at that meal.
+- Screens: Chat, History, Settings (keys, kitchen, your foods and meals), barcode scanner.
+
+The phase history below is kept for reference.
+
 Each phase ends with an APK at the same link and a test for the user. The next phase starts only
 after the user reports the test result. Design details are in `SPEC.md`.
 

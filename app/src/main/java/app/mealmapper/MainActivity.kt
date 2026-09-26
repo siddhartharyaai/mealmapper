@@ -1,69 +1,35 @@
 package app.mealmapper
 
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavBackStackEntry
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
+import app.mealmapper.ui.chat.ChatScreen
+import app.mealmapper.ui.chat.ChatViewModel
 import app.mealmapper.ui.history.HistoryScreen
 import app.mealmapper.ui.history.HistoryViewModel
-import app.mealmapper.domain.MealSlot
-import java.time.LocalDate
-import app.mealmapper.ui.home.HomeScreen
-import app.mealmapper.ui.home.HomeViewModel
-import app.mealmapper.ui.photo.PhotoKind
-import app.mealmapper.ui.photo.PhotoMode
-import app.mealmapper.ui.photo.PhotoScreen
-import app.mealmapper.ui.review.ReviewRequest
-import app.mealmapper.ui.review.ReviewScreen
-import app.mealmapper.ui.review.ReviewViewModel
 import app.mealmapper.ui.scan.ScanScreen
-import app.mealmapper.ui.search.SearchScreen
 import app.mealmapper.ui.settings.SettingsScreen
 import app.mealmapper.ui.setup.SetupScreen
 import app.mealmapper.ui.setup.SetupViewModel
 import app.mealmapper.ui.theme.MealMapperTheme
 
 private object Routes {
-    const val HOME = "home"
+    const val CHAT = "chat"
     const val SCAN = "scan"
     const val SETUP = "setup"
     const val SETTINGS = "settings"
     const val HISTORY = "history"
-    const val SEARCH = "search"
-    const val PHOTO = "photo?mode={mode}&kind={kind}&code={code}&name={name}"
-    const val REVIEW = "review?kind={kind}&code={code}&note={note}&photo={photo}&name={name}&place={place}&slot={slot}&day={day}"
-
-    fun photo(mode: PhotoMode, kind: PhotoKind, code: String? = null, name: String? = null) =
-        "photo?mode=${mode.name}&kind=${kind.name}&code=${enc(code)}&name=${enc(name)}"
-
-    /** Several photos travel as one argument, one Uri per line. */
-    fun review(
-        kind: String, code: String? = null, note: String = "", photos: List<Uri> = emptyList(), name: String? = null,
-        place: String = "", slot: MealSlot? = null, day: LocalDate? = null,
-    ) = "review?kind=$kind&code=${enc(code)}&note=${enc(note)}&photo=${enc(photos.joinToString("\n"))}&name=${enc(name)}" +
-        "&place=$place&slot=${slot?.name.orEmpty()}&day=${day?.toString().orEmpty()}"
-
-    private fun enc(v: String?) = Uri.encode(v.orEmpty())
-
-    val photoArgs = listOf("mode", "kind", "code", "name").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
-    val reviewArgs = listOf("kind", "code", "note", "photo", "name", "place", "slot", "day").map { navArgument(it) { type = NavType.StringType; defaultValue = "" } }
+    const val BARCODE_KEY = "barcode"
 }
 
-private fun NavBackStackEntry.arg(name: String): String? = arguments?.getString(name)?.takeIf { it.isNotEmpty() }
-
+/** Four screens: the chat (everything is logged there), History, Settings, and the barcode scanner. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,35 +38,27 @@ class MainActivity : ComponentActivity() {
         setContent {
             MealMapperTheme {
                 val nav = rememberNavController()
-                var savedMessage by rememberSaveable { mutableStateOf<String?>(null) }
-                val hasAiKey by container.aiSettings.hasKey.collectAsStateWithLifecycle()
-
-                NavHost(navController = nav, startDestination = Routes.HOME) {
-                    composable(Routes.HOME) {
-                        val vm: HomeViewModel = viewModel(
-                            factory = HomeViewModel.factory(container),
-                        )
-                        HomeScreen(
-                            viewModel = vm,
-                            savedMessage = savedMessage,
-                            onMessageShown = { savedMessage = null },
-                            onBarcode = { nav.navigate(Routes.SCAN) },
-                            onCamera = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MEAL)) },
-                            onUpload = { nav.navigate(Routes.photo(PhotoMode.UPLOAD, PhotoKind.MEAL)) },
-                            onType = { nav.navigate(Routes.photo(PhotoMode.TYPE, PhotoKind.MEAL)) },
-                            onSearch = { nav.navigate(Routes.SEARCH) },
-                            onMenu = { nav.navigate(Routes.photo(PhotoMode.CAMERA, PhotoKind.MENU)) },
-                            onSettings = { nav.navigate(Routes.SETTINGS) },
+                NavHost(navController = nav, startDestination = Routes.CHAT) {
+                    composable(Routes.CHAT) { entry ->
+                        val vm: ChatViewModel = viewModel(factory = ChatViewModel.factory(applicationContext, container))
+                        val barcode by entry.savedStateHandle.getStateFlow<String?>(Routes.BARCODE_KEY, null).collectAsStateWithLifecycle()
+                        ChatScreen(
+                            vm = vm,
+                            scannedBarcode = barcode,
+                            onBarcodeConsumed = { entry.savedStateHandle[Routes.BARCODE_KEY] = null },
+                            onScan = { nav.navigate(Routes.SCAN) },
                             onHistory = { nav.navigate(Routes.HISTORY) },
+                            onSettings = { nav.navigate(Routes.SETTINGS) },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
                         )
                     }
-                    composable(Routes.SEARCH) {
-                        SearchScreen(
-                            db = container.foodDb,
+                    composable(Routes.SCAN) {
+                        ScanScreen(
                             onBack = { nav.popBackStack() },
-                            onPick = { id, note, slot, day -> nav.navigate(Routes.review("food", code = id, note = note, slot = slot, day = day)) },
-                            onWeb = { name, slot, day -> nav.navigate(Routes.review("webfood", name = name, slot = slot, day = day)) },
+                            onBarcode = { code ->
+                                nav.previousBackStackEntry?.savedStateHandle?.set(Routes.BARCODE_KEY, code)
+                                nav.popBackStack()
+                            },
                         )
                     }
                     composable(Routes.HISTORY) {
@@ -114,80 +72,9 @@ class MainActivity : ComponentActivity() {
                             gemini = container.gemini,
                             voice = container.deepgramSettings,
                             deepgram = container.deepgram,
+                            memory = container.memory,
                             onBack = { nav.popBackStack() },
                             onHealthCheck = { nav.navigate(Routes.SETUP) },
-                        )
-                    }
-                    composable(Routes.SCAN) {
-                        ScanScreen(
-                            onBack = { nav.popBackStack() },
-                            onBarcode = { code, note, slot, day ->
-                                nav.navigate(Routes.review("barcode", code = code, note = note, slot = slot, day = day)) { launchSingleTop = true }
-                            },
-                        )
-                    }
-                    composable(Routes.PHOTO, arguments = Routes.photoArgs) { entry ->
-                        val code = entry.arg("code")
-                        val name = entry.arg("name")
-                        PhotoScreen(
-                            mode = PhotoMode.valueOf(entry.arg("mode") ?: PhotoMode.CAMERA.name),
-                            initialKind = PhotoKind.valueOf(entry.arg("kind") ?: PhotoKind.LABEL.name),
-                            hasAiKey = hasAiKey,
-                            onBack = { nav.popBackStack() },
-                            onSettings = { nav.navigate(Routes.SETTINGS) },
-                            onAnalyse = { kind, photos, note, restaurant, restaurantName, slot, day ->
-                                val reviewKind = when (kind) {
-                                    PhotoKind.MEAL -> "meal"
-                                    PhotoKind.MENU -> "menu"
-                                    PhotoKind.LABEL -> "label"
-                                    PhotoKind.PACK -> "web"
-                                }
-                                val place = if (restaurant) "restaurant" else "home"
-                                // For meals and menus the name argument carries the restaurant name.
-                                val reviewName = when {
-                                    kind == PhotoKind.MENU || (kind == PhotoKind.MEAL && restaurant) -> restaurantName.ifBlank { null }
-                                    kind == PhotoKind.MEAL -> null
-                                    else -> name
-                                }
-                                nav.navigate(Routes.review(reviewKind, code = code, note = note, photos = photos, name = reviewName, place = place, slot = slot, day = day))
-                            },
-                        )
-                    }
-                    composable(Routes.REVIEW, arguments = Routes.reviewArgs) { entry ->
-                        val note = entry.arg("note").orEmpty()
-                        val code = entry.arg("code")
-                        val name = entry.arg("name")
-                        val photos = entry.arg("photo")?.split("\n")?.filter { it.isNotBlank() }?.map(Uri::parse).orEmpty()
-                        val photo = photos.firstOrNull()
-                        val request = when (entry.arg("kind")) {
-                            "label" -> ReviewRequest.Label(photo!!, note, code, name)
-                            "web" -> ReviewRequest.Web(photo, note, code, name)
-                            "meal" -> ReviewRequest.Meal(photos, note, restaurant = entry.arg("place") == "restaurant", restaurantName = name)
-                            "menu" -> ReviewRequest.Menu(photos, note, restaurantName = name)
-                            "food" -> ReviewRequest.Food(code.orEmpty(), note)
-                            "webfood" -> ReviewRequest.WebFood(name.orEmpty(), note)
-                            else -> ReviewRequest.Barcode(code.orEmpty(), note)
-                        }
-                        val vm: ReviewViewModel = viewModel(
-                            factory = ReviewViewModel.factory(
-                                request,
-                                entry.arg("slot")?.let { runCatching { MealSlot.valueOf(it) }.getOrNull() },
-                                entry.arg("day")?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
-                                applicationContext,
-                                container,
-                            ),
-                        )
-                        ReviewScreen(
-                            viewModel = vm,
-                            onBack = { nav.popBackStack() },
-                            onSaved = { message ->
-                                savedMessage = message
-                                nav.popBackStack(Routes.HOME, inclusive = false)
-                            },
-                            onPhotograph = { kind, barcode, productName ->
-                                nav.navigate(Routes.photo(PhotoMode.CAMERA, kind, barcode, productName))
-                            },
-                            onSettings = { nav.navigate(Routes.SETTINGS) },
                         )
                     }
                     composable(Routes.SETUP) {

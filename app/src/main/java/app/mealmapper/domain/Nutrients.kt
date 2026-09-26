@@ -7,6 +7,7 @@ import kotlin.math.max
  * Nutrient amounts for one quantity of food (per 100 g, or for a portion).
  * Optional nutrients stay null when the source does not give them. Null is not zero.
  */
+@kotlinx.serialization.Serializable
 data class Nutrients(
     val energyKcal: Double,
     val proteinG: Double,
