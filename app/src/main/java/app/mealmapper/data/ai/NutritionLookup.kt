@@ -124,7 +124,7 @@ class NutritionLookup(private val gemini: GeminiClient) {
         cache: LookupCache?,
         progress: (String) -> Unit,
         onDone: (index: Int, item: AiParsing.MealItem, db: DbFood?) -> Unit,
-    ) = coroutineScope {
+    ): Unit = coroutineScope {
         val gate = Semaphore(MAX_PARALLEL)
 
         suspend fun online(i: Int, what: String, key: String, fetch: suspend () -> LookupOutcome) {
@@ -163,8 +163,7 @@ class NutritionLookup(private val gemini: GeminiClient) {
         }
 
         val open = items.indices.filter { !items[it].published && it !in webFirst }
-        if (open.isEmpty()) return@coroutineScope
-        launch {
+        if (open.isNotEmpty()) launch {
             progress("Checking the food databank…")
             val openItems = open.map { items[it] }
             val candidates = openItems.map { item ->

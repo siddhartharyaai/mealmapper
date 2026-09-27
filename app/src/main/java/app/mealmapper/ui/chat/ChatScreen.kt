@@ -508,8 +508,10 @@ private fun AmountDialog(item: DraftItem, onDismiss: () -> Unit, onDone: (Double
                 onValueChange = { value = it.filter { c -> c.isDigit() || c == '.' || c == ',' }.take(7) },
                 singleLine = true,
                 suffix = { Text(item.unit) },
-                supportingText = parsed?.takeIf { item.unit != item.basis.unit }?.let { q ->
-                    { Text("= ${(q * (item.units[item.unit] ?: 1.0)).roundToInt()} ${item.basis.unit}") }
+                supportingText = if (parsed != null && item.unit != item.basis.unit) {
+                    { Text("= ${(parsed * (item.units[item.unit] ?: 1.0)).roundToInt()} ${item.basis.unit}") }
+                } else {
+                    null
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
