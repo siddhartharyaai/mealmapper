@@ -3,6 +3,7 @@ package app.mealmapper.data.chat
 import android.content.Context
 import app.mealmapper.AppContainer
 import app.mealmapper.data.ai.AiException
+import app.mealmapper.data.ai.AiParsing
 import app.mealmapper.data.ai.AiTransientException
 import app.mealmapper.data.ai.ChatBrain
 import app.mealmapper.data.ai.ChatParsing
@@ -204,7 +205,7 @@ class ChatEngine(private val app: Context, private val c: AppContainer) {
         val lookups = todo.map { i ->
             val item = card.items[i]
             val spec = item.lookup
-            app.mealmapper.data.ai.AiParsing.MealItem(
+            AiParsing.MealItem(
                 name = item.name,
                 grams = item.grams,
                 per100 = item.per100,
