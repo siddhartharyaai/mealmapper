@@ -2,6 +2,10 @@ package app.mealmapper
 
 import android.content.Context
 import app.mealmapper.data.cache.ProductCache
+import app.mealmapper.data.cache.WebCache
+import app.mealmapper.data.chat.ChatEngine
+import app.mealmapper.data.chat.ChatStore
+import app.mealmapper.data.settings.AppPrefs
 import app.mealmapper.data.ai.AiSettings
 import app.mealmapper.data.ai.GeminiClient
 import app.mealmapper.data.ai.NutritionLookup
@@ -29,4 +33,8 @@ class AppContainer(context: Context) {
     val memory: MemoryStore by lazy { MemoryStore(appContext) }
     val deepgramSettings = DeepgramSettings(appContext)
     val deepgram: DeepgramClient by lazy { DeepgramClient(deepgramSettings) }
+    val chat: ChatStore by lazy { ChatStore(appContext) }
+    val chatEngine: ChatEngine by lazy { ChatEngine(appContext, this) }
+    val webCache: WebCache by lazy { WebCache(appContext) }
+    val prefs = AppPrefs(appContext)
 }

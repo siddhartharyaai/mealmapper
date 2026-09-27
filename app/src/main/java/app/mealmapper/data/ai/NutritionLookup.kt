@@ -3,7 +3,26 @@ package app.mealmapper.data.ai
 import app.mealmapper.domain.DbFood
 import app.mealmapper.domain.FoodSearch
 import app.mealmapper.domain.FoodProduct
+import app.mealmapper.domain.Nutrients
 import app.mealmapper.domain.ProductSource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+
+/** A web result kept on the phone, so the same product or dish is searched only once. */
+@kotlinx.serialization.Serializable
+data class CachedLookup(val per100: Nutrients, val servingGrams: Double? = null, val label: String, val at: Long)
+
+interface LookupCache {
+    fun get(key: String): CachedLookup?
+    fun put(key: String, value: CachedLookup)
+}
+
+/** "product:true basics whey protein nutrition facts": lower case, punctuation folded to single spaces. */
+fun cacheKey(kind: String, name: String): String =
+    kind + ":" + name.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
 
 /** Kitchen calibration from Settings, for home-food estimates. */
 data class Kitchen(val katoriMl: Int = 150, val oilGramsPerPersonDay: Double? = null)
@@ -19,7 +38,7 @@ sealed interface LookupOutcome {
  * - web: a packaged product's printed nutrition table on real pages (Gemini with Google Search).
  * - webFood: per-100 g values for a generic food or dish from reliable sources (IFCT, INDB, USDA, CoFID).
  * - webRestaurant: a restaurant dish: the restaurant's published values, else comparable dishes online.
- * - resolve: the source ladder that decides, per item, which of these applies.
+ * - resolveEach: the source ladder that decides, per item, which of these applies.
  */
 class NutritionLookup(private val gemini: GeminiClient) {
 
@@ -86,60 +105,91 @@ class NutritionLookup(private val gemini: GeminiClient) {
         )
     }
 
-    /** What [resolve] produced: items with their values, and the databank row used for each matched item. */
-    data class Resolved(val items: List<AiParsing.MealItem>, val matched: Map<Int, DbFood>)
-
     /**
-     * The source ladder. Every item goes down it until something factual is found; the AI's own numbers are last.
+     * The source ladder, one item at a time and in parallel. Every item goes down it until something factual is
+     * found; the AI's own numbers are last. [onDone] is called once per item as soon as that item is settled, so
+     * the card can fill in while slower lookups continue.
      *  1. Named products ("branded"): the product's own label values from the web.
      *  2. Restaurant dishes: the restaurant's published values, else comparable dishes online.
      *  3. Everything else: the food databank (INDB cooked recipes, IFCT 2017, CoFID); Gemini picks the same dish
      *     from local candidates and may say "none".
      *  4. Not in the databank: per-100 g values from reliable web sources (IFCT, INDB, USDA, CoFID).
      *  5. Still nothing: the AI's estimate, shown as such.
+     * Web results are kept in [cache], so the same product is searched only once.
+     * A network failure ([AiTransientException]) is not swallowed: the caller retries, and settled items stay settled.
      */
-    suspend fun resolve(estimated: List<AiParsing.MealItem>, foods: List<DbFood>, progress: (String) -> Unit): Resolved {
-        var items = estimated
-        val products = items.filter { it.lookup != null && !it.published }
-        if (products.isNotEmpty()) {
-            progress("Looking up ${products.joinToString { it.name }} online…")
-            items = items.map { item -> if (item.lookup != null && !item.published) fromWeb(item, web(null, item.lookup), "product") else item }
-        }
-        val dishes = items.filter { it.kind == "restaurant" && !it.published }
-        if (dishes.isNotEmpty()) {
-            progress("Finding restaurant values for ${dishes.joinToString { it.name }}…")
-            items = items.map { item ->
-                if (item.kind == "restaurant" && !item.published) {
-                    fromWeb(item, webRestaurant(item.searchName ?: item.name, item.restaurant), "restaurant")
-                } else {
-                    item
-                }
+    suspend fun resolveEach(
+        items: List<AiParsing.MealItem>,
+        foods: List<DbFood>,
+        cache: LookupCache?,
+        progress: (String) -> Unit,
+        onDone: (index: Int, item: AiParsing.MealItem, db: DbFood?) -> Unit,
+    ) = coroutineScope {
+        val gate = Semaphore(MAX_PARALLEL)
+
+        suspend fun online(i: Int, what: String, key: String, fetch: suspend () -> LookupOutcome) {
+            val item = items[i]
+            cache?.get(key)?.let { hit ->
+                onDone(i, item.copy(per100 = hit.per100, servingGrams = hit.servingGrams ?: item.servingGrams, assumption = hit.label,
+                    published = true, lookup = null, lowKcal = null, highKcal = null), null)
+                return
             }
+            val outcome = try {
+                gate.withPermit { fetch() }
+            } catch (e: AiTransientException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LookupOutcome.NotFound(e.message ?: "Lookup failed.")
+            }
+            val done = fromWeb(item, outcome, what)
+            if (done.published) cache?.put(key, CachedLookup(done.per100, done.servingGrams, done.assumption ?: "Found online", System.currentTimeMillis()))
+            onDone(i, done, null)
         }
 
-        val open = { i: Int -> !items[i].published && items[i].lookup == null && items[i].kind != "restaurant" }
-        if (items.indices.none(open)) return Resolved(items, emptyMap())
-        progress("Checking the food databank…")
-        val candidates = items.indices.map { i ->
-            if (!open(i)) {
-                emptyList()
+        items.indices.filter { items[it].published }.forEach { onDone(it, items[it], null) }
+        val webFirst = items.indices.filter { !items[it].published && (items[it].lookup != null || items[it].kind == "restaurant") }
+        if (webFirst.isNotEmpty()) progress("Looking up ${webFirst.joinToString { items[it].name }} online…")
+        webFirst.forEach { i ->
+            val item = items[i]
+            val product = item.lookup
+            if (product != null) {
+                launch { online(i, "product", cacheKey("product", product)) { web(null, product) } }
             } else {
-                val byName = FoodSearch.candidates(foods, items[i].searchName ?: items[i].name)
-                (byName + FoodSearch.candidates(foods, items[i].name)).distinctBy { it.id }.take(10)
+                val dish = item.searchName ?: item.name
+                launch { online(i, "restaurant", cacheKey("restaurant", "$dish ${item.restaurant.orEmpty()}")) { webRestaurant(dish, item.restaurant) } }
             }
         }
-        val matched = runCatching {
-            pickFromDb(items, candidates).mapNotNull { (i, id) -> foods.firstOrNull { it.id == id }?.let { i to it } }.toMap()
-        }.getOrDefault(emptyMap())
 
-        val missing = items.indices.filter { open(it) && it !in matched }.take(MAX_WEB_ITEMS)
-        if (missing.isNotEmpty()) {
-            progress("Not in the databank: looking up ${missing.joinToString { items[it].name }} online…")
-            items = items.mapIndexed { i, item ->
-                if (i in missing) fromWeb(item, webFood(item.searchName ?: item.name), "food") else item
+        val open = items.indices.filter { !items[it].published && it !in webFirst }
+        if (open.isEmpty()) return@coroutineScope
+        launch {
+            progress("Checking the food databank…")
+            val openItems = open.map { items[it] }
+            val candidates = openItems.map { item ->
+                val byName = FoodSearch.candidates(foods, item.searchName ?: item.name)
+                (byName + FoodSearch.candidates(foods, item.name)).distinctBy { it.id }.take(10)
             }
+            val picked = try {
+                pickFromDb(openItems, candidates)
+            } catch (e: AiTransientException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyMap()
+            }
+            val matched = picked.mapNotNull { (k, id) -> foods.firstOrNull { it.id == id }?.let { open[k] to it } }.toMap()
+            matched.forEach { (i, db) -> onDone(i, items[i], db) }
+            val missing = open.filter { it !in matched }
+            if (missing.isNotEmpty()) progress("Not in the databank: looking up ${missing.take(MAX_WEB_ITEMS).joinToString { items[it].name }} online…")
+            missing.take(MAX_WEB_ITEMS).forEach { i ->
+                val name = items[i].searchName ?: items[i].name
+                launch { online(i, "food", cacheKey("food", name)) { webFood(name) } }
+            }
+            missing.drop(MAX_WEB_ITEMS).forEach { onDone(it, items[it], null) }
         }
-        return Resolved(items, matched)
     }
 
     /** Applies a web result to an item, or marks the item as the AI's estimate when nothing was found. */
@@ -201,6 +251,9 @@ class NutritionLookup(private val gemini: GeminiClient) {
 
     private companion object {
         const val MAX_WEB_ITEMS = 5
+
+        // Web lookups at once. Each is two Gemini calls; more at once risks the per-minute rate limit.
+        const val MAX_PARALLEL = 3
         const val SCHEMA = """{
   "found": true or false,
   "product_name": string, "brand": string, "variant": string (flavour/type exactly as on the pack),

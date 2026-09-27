@@ -254,4 +254,7 @@ object AiParsing {
     private const val MIN_KCAL_TO_COMPARE = 10.0
 }
 
-class AiException(message: String) : Exception(message)
+open class AiException(message: String) : Exception(message)
+
+/** A failure that usually clears on its own (network drop, timeout, busy server): worth trying again. */
+class AiTransientException(message: String) : AiException(message)

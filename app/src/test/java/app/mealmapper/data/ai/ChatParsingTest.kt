@@ -58,4 +58,16 @@ class ChatParsingTest {
         val p = ChatParsing.plan("""{"items":[{"name":"Mystery","quantity":1,"unit":"piece"}]}""", today)
         assertTrue(p.items.isEmpty())
     }
+
+    @Test fun logAndSaveInOneMessage() {
+        val p = ChatParsing.plan(
+            """{"action":"log","reply":"Logged and saved.","meal":"pre_breakfast","save_meal":{"name":"Pre-breakfast"},
+               "items":[{"name":"Almonds, soaked","quantity":5,"unit":"piece","grams":6,"kind":"food","kcal":35}]}""",
+            LocalDate.of(2026, 9, 27),
+        )
+        assertEquals("log", p.action)
+        assertEquals("Pre-breakfast", p.saveMealName)
+        assertEquals(MealSlot.PRE_BREAKFAST, p.slot)
+        assertEquals(1, p.items.size)
+    }
 }

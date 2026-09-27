@@ -101,6 +101,8 @@ run() {
   echo "=== $label ==="
   adb uninstall "$PKG" >/dev/null 2>&1
   if [ "$grant" = yes ]; then adb install -g "$APK"; else adb install "$APK"; fi
+  # The "meal ready" permission dialog would cover the chat on the first send; a phone asks once, the test grants it.
+  adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1
   adb logcat -c; adb logcat -b crash -c
   adb shell am start -W -n "$PKG/.MainActivity"
   sleep 6
@@ -132,7 +134,7 @@ run() {
     on_screen "What did you eat" >/dev/null && break
   done
 
-  # Send a message with no Gemini key: a clear message, no crash.
+  # Send a message with no Gemini key: it runs as a background job and fails with a clear reason and Retry.
   tap_text "What did you eat?" || return 1
   adb shell input text "2%sroti%sand%sdal%sfor%slunch"
   sleep 2
@@ -143,12 +145,26 @@ run() {
   adb shell screencap -p /sdcard/sent.png; adb pull /sdcard/sent.png "$OUT/$label-sent.png" >/dev/null
   if crashed; then echo "CRASH on Send ($label)"; cat "$OUT/crash.txt"; return 1; fi
   on_screen "Gemini API key" || return 1
+  on_screen "Retry" || return 1
+  tap_text "Retry" || return 1
+  sleep 6
+  if crashed; then echo "CRASH on Retry ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  on_screen "Gemini API key" || return 1
 
   # Mic with no Deepgram key: guidance, no crash.
   tap_text "&#127897;" || return 1   # the mic emoji, as the UI dump encodes it
   sleep 2
   if crashed; then echo "CRASH on mic ($label)"; cat "$OUT/crash.txt"; return 1; fi
   on_screen "Deepgram" || return 1
+
+  # Widget / app-shortcut entry points ("Type a meal", "Speak a meal"): open the chat, no crash.
+  adb shell am start -a app.mealmapper.TYPE -n "$PKG/.MainActivity" >/dev/null
+  sleep 3
+  adb shell dumpsys input_method | grep -q "mInputShown=true" && adb shell input keyevent 4
+  adb shell am start -a app.mealmapper.SPEAK -n "$PKG/.MainActivity" >/dev/null
+  sleep 3
+  if crashed; then echo "CRASH on widget intents ($label)"; cat "$OUT/crash.txt"; return 1; fi
+  on_screen "What did you eat" || return 1
   echo "OK: $label"
 }
 

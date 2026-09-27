@@ -2,6 +2,9 @@ package app.mealmapper.data.ai
 
 import android.util.Base64
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,6 +30,7 @@ class GeminiClient(private val settings: AiSettings) {
         .connectTimeout(15, TimeUnit.SECONDS)
         // Search plus thinking can take a while on mobile data.
         .readTimeout(90, TimeUnit.SECONDS)
+        .callTimeout(150, TimeUnit.SECONDS)
         .build()
 
     /** Reads images (labels, pack fronts). */
@@ -101,12 +105,20 @@ class GeminiClient(private val settings: AiSettings) {
                     if (!response.isSuccessful) {
                         val message = errorMessage(response.code, text, model, search)
                         if (response.code == 404) throw ModelUnavailable(message)
+                        // Busy servers and short rate limits clear on their own: the background job tries again.
+                        if (response.code in 500..599 || (response.code == 429 && !search)) throw AiTransientException(message)
                         throw AiException(message)
                     }
                     AiParsing.interaction(text).copy(model = model)
                 }
+            } catch (e: SocketTimeoutException) {
+                throw AiTransientException("Gemini took too long to answer (timed out).")
+            } catch (e: InterruptedIOException) {
+                throw AiTransientException("Gemini took too long to answer (timed out).")
+            } catch (e: UnknownHostException) {
+                throw AiTransientException("Could not reach Gemini: no internet, or Android blocked Meal Mapper's data in the background.")
             } catch (e: IOException) {
-                throw AiException("No connection to Gemini. Check your internet and try again.")
+                throw AiTransientException("The connection to Gemini broke (${e.javaClass.simpleName}). Usually a weak or changing network.")
             }
         }
 
@@ -117,6 +129,7 @@ class GeminiClient(private val settings: AiSettings) {
             400 -> if (body.contains("API key", ignoreCase = true)) "The Gemini API key is not valid." else "Gemini rejected the request."
             401, 403 -> "This Gemini key is not allowed. Check it in Google AI Studio."
             404 -> "Model \"$model\" is not available on this key."
+            500, 502, 503, 504 -> "Gemini is busy right now (error $code)."
             429 -> if (search) {
                 "Google Search quota reached, or billing is not on for this project (free keys have no search)."
             } else {

@@ -6,6 +6,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- "Your meal is ready" and the daily summary. Asked for on the first message. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Background meal processing (WorkManager) shows a notification on Android 11 and lower. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- One-time "let Meal Mapper work in the background" prompt (Samsung stops background work otherwise). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -26,12 +32,30 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Long-press the app icon: "Speak a meal", "Type a meal". -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Home-screen widget: one tap to speak or type a meal. -->
+        <receiver
+            android:name=".widget.QuickWidget"
+            android:exported="false"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

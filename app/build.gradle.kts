@@ -12,8 +12,8 @@ android {
         applicationId = "app.mealmapper"
         minSdk = 28
         targetSdk = 36
-        versionCode = 22
-        versionName = "2.0.0"
+        versionCode = 23
+        versionName = "2.1.0"
     }
 
     signingConfigs {
@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.work.runtime)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

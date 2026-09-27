@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="speak"
+        android:shortcutShortLabel="@string/shortcut_speak">
+        <intent
+            android:action="app.mealmapper.SPEAK"
+            android:targetClass="app.mealmapper.MainActivity"
+            android:targetPackage="app.mealmapper" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="type"
+        android:shortcutShortLabel="@string/shortcut_type">
+        <intent
+            android:action="app.mealmapper.TYPE"
+            android:targetClass="app.mealmapper.MainActivity"
+            android:targetPackage="app.mealmapper" />
+    </shortcut>
+</shortcuts>

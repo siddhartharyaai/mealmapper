@@ -46,4 +46,35 @@ class DraftTest {
         assertEquals(180.0, d.total.energyKcal, 0.01)
         assertEquals(4.8, d.total.fiberG!!, 0.01)
     }
+
+    @Test fun fillKeepsTheUsersAmountAndTakesTheValues() {
+        val loading = roti.copy(qty = 3.0, loading = true, sourceKind = SourceKind.AI, lookup = LookupSpec("food", "Phulka", null, null, null))
+        val found = roti.copy(per100 = Nutrients(290.0, 11.0, 58.0, 1.5), units = mapOf("serving" to 40.0, "g" to 1.0))
+        val filled = loading.fill(found)
+        assertEquals(3.0, filled.qty, 0.0)
+        assertEquals("phulka", filled.unit)
+        assertEquals(290.0, filled.per100.energyKcal, 0.0)
+        assertEquals(SourceKind.DATABANK, filled.sourceKind)
+        assertEquals(30.0, filled.units["phulka"]!!, 0.0) // the current unit keeps its weight
+        assertEquals(40.0, filled.units["serving"]!!, 0.0)
+        assertTrue(!filled.loading && filled.lookup == null)
+    }
+
+    @Test fun cannotLogWhileAnItemIsLoading() {
+        val d = Draft(1, listOf(roti, roti.copy(loading = true)), LocalDate.of(2026, 9, 27), MealSlot.LUNCH)
+        assertTrue(d.loading && !d.canLog)
+        // Unticking the loading item lets the rest be logged.
+        assertTrue(d.copy(items = listOf(roti, roti.copy(loading = true, include = false))).canLog)
+        val gaveUp = roti.copy(loading = true).gaveUp("AI estimate: the lookup did not finish")
+        assertEquals(SourceKind.AI, gaveUp.sourceKind)
+        assertTrue(!gaveUp.loading)
+    }
+
+    @Test fun draftRoundTripsThroughJson() {
+        val json = kotlinx.serialization.json.Json
+        val d = Draft(7, listOf(roti.copy(loading = true, lookup = LookupSpec("branded", "x", "x nutrition", null, "n"))),
+            LocalDate.of(2026, 9, 26), MealSlot.PRE_BREAKFAST, saveAs = "Pre-breakfast")
+        val back = json.decodeFromString(Draft.serializer(), json.encodeToString(Draft.serializer(), d))
+        assertEquals(d, back)
+    }
 }

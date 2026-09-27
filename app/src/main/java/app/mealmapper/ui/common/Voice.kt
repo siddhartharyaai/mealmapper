@@ -45,7 +45,13 @@ private enum class VoiceState { IDLE, RECORDING, TRANSCRIBING }
  * it down and the text lands in the message box, where it can be fixed before sending. The recording is deleted.
  */
 @Composable
-fun VoiceMic(onText: (String) -> Unit, onError: (String) -> Unit) {
+fun VoiceMic(
+    onText: (String) -> Unit,
+    onError: (String) -> Unit,
+    /** Start recording at once (the widget's "Speak a meal"). */
+    startNow: Boolean = false,
+    onStarted: () -> Unit = {},
+) {
     val context = LocalContext.current
     val container = (context.applicationContext as MealMapperApp).container
     val hasKey by container.deepgramSettings.hasKey.collectAsStateWithLifecycle()
@@ -87,6 +93,21 @@ fun VoiceMic(onText: (String) -> Unit, onError: (String) -> Unit) {
         if (granted) startRecording() else onError("Microphone access is needed to speak your meal.")
     }
 
+    fun tapped() {
+        when {
+            !hasKey -> onError("Add your Deepgram key in Settings to speak your meals.")
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> startRecording()
+            else -> permission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    LaunchedEffect(startNow) {
+        if (startNow) {
+            onStarted()
+            if (state == VoiceState.IDLE) tapped()
+        }
+    }
+
     LaunchedEffect(state) {
         while (state == VoiceState.RECORDING) {
             delay(1_000)
@@ -103,12 +124,6 @@ fun VoiceMic(onText: (String) -> Unit, onError: (String) -> Unit) {
         VoiceState.TRANSCRIBING -> Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
         }
-        VoiceState.IDLE -> TextButton(onClick = {
-            when {
-                !hasKey -> onError("Add your Deepgram key in Settings to speak your meals.")
-                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> startRecording()
-                else -> permission.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }) { Text("🎙", style = MaterialTheme.typography.titleLarge) }
+        VoiceState.IDLE -> TextButton(onClick = ::tapped) { Text("🎙", style = MaterialTheme.typography.titleLarge) }
     }
 }

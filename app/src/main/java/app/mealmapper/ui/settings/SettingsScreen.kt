@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +41,9 @@ import app.mealmapper.data.settings.Profile
 import app.mealmapper.data.settings.ProfileStore
 import app.mealmapper.data.voice.DeepgramClient
 import app.mealmapper.data.memory.MemoryStore
+import app.mealmapper.data.cache.WebCache
+import app.mealmapper.data.chat.DailySummary
+import app.mealmapper.data.settings.AppPrefs
 import app.mealmapper.data.voice.DeepgramSettings
 import app.mealmapper.domain.ProfileRules
 import app.mealmapper.ui.common.fmt
@@ -50,6 +56,8 @@ fun SettingsScreen(
     voice: DeepgramSettings,
     deepgram: DeepgramClient,
     memory: MemoryStore,
+    webCache: WebCache,
+    prefs: AppPrefs,
     onBack: () -> Unit,
     onHealthCheck: () -> Unit,
 ) {
@@ -156,6 +164,10 @@ fun SettingsScreen(
 
             HorizontalDivider()
             MemorySection(memory)
+            WebCacheRow(webCache)
+
+            HorizontalDivider()
+            SummarySection(prefs)
 
             HorizontalDivider()
             Text("Health Connect", style = MaterialTheme.typography.titleMedium)
@@ -165,6 +177,56 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(onClick = onHealthCheck, modifier = Modifier.fillMaxWidth()) { Text("Health Connect check") }
+        }
+    }
+}
+
+/** Values found online are kept so each product is searched once; this forgets them all. */
+@Composable
+private fun WebCacheRow(cache: WebCache) {
+    val entries by cache.entries.collectAsStateWithLifecycle()
+    if (entries.isEmpty()) return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "${entries.size} value${if (entries.size == 1) "" else "s"} found online are kept, so each is searched only once.",
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = cache::clear) { Text("Forget") }
+    }
+}
+
+/** The evening notification: today's calories and macros, and which main meal is not logged. */
+@Composable
+private fun SummarySection(prefs: AppPrefs) {
+    val context = LocalContext.current
+    val on by prefs.summaryOn.collectAsStateWithLifecycle()
+    val minute by prefs.summaryMinute.collectAsStateWithLifecycle()
+    fun set(newOn: Boolean, newMinute: Int) {
+        prefs.setSummary(newOn, newMinute)
+        DailySummary.schedule(context, newOn, newMinute)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Daily summary", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "A notification each evening: calories, macros, and any main meal not logged yet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = on, onCheckedChange = { set(it, minute) })
+    }
+    if (on) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(20 * 60 + 30, 21 * 60 + 30, 22 * 60 + 30).forEach { m ->
+                FilterChip(
+                    selected = m == minute,
+                    onClick = { set(true, m) },
+                    label = { Text("%d:%02d".format(m / 60, m % 60)) },
+                )
+            }
         }
     }
 }

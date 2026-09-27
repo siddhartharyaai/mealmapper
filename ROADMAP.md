@@ -1,6 +1,15 @@
 # Meal Mapper: Roadmap
 
-## 2.0: one chat (current)
+## 2.1: reliable in the background (current)
+- Every message is a WorkManager job: it survives switching apps and Android closing the app, waits for a
+  network, and tries network failures again (3 tries). The conversation is saved on the phone (chat.json).
+- "Meal ready" notification when the app is not on screen; one-time prompt to allow background work.
+- Errors name the real cause; Retry on every failed message; long-press Copy, Edit and resend.
+- Log and save as a meal in one message. Cards appear at once and fill in as lookups finish (in parallel,
+  3 at a time). Values found online are kept (web-lookups.json), so each is searched once.
+- Type an amount by tapping it. Home-screen widget and app shortcuts (Speak / Type a meal). Daily summary.
+
+## 2.0: one chat
 
 The six logging paths (barcode, photo, upload, say/type, search, menu) and their forms are replaced by one chat.
 The user says what they ate; the app answers with a log card; one tap logs it. See SPEC notes below.
